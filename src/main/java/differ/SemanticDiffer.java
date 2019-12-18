@@ -59,11 +59,13 @@ public class SemanticDiffer{
 		}
 		
 		PackManager.v().getPack("wjtp").add(new Transform("wjtp.renameTransform", createRenameTransformer()));
+		System.out.println("First soot has these options: " + options1);
 		soot.Main.main(options1.toArray(new String[0]));
 		//not sure if this is needed
 		PackManager.v().getPack("wjtp").remove("wjtp.renameTransform");
 		G.reset();
 		PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTransform", createDiffTransformer()));
+		System.out.println("Second soot has these options: " + options2);
         soot.Main.main(options2.toArray(new String[0]));
 	}
 
@@ -121,6 +123,9 @@ public class SemanticDiffer{
 				System.err.println("FINALSET:");
 				System.err.println(Scene.v().getClasses());
 				diff(original, redefinition);
+				//weird hack to get soot/asm to fix all references in the class to align with renaming to OG name
+				redefinition.rename("HelloOriginal");
+				redefinition.rename("Hello");
 			}
 		};
 	}
@@ -203,6 +208,11 @@ public class SemanticDiffer{
 			}else if(removedFields.size() != 0){
 				System.err.println("\tField(s) has been removed");
 				System.err.println(removedFields);
+				for(SootField f : removedFields){
+					//silly thing to have this flag                                                                            
+					f.setDeclared(false);
+					redefinition.addField(f);
+                }
 			}else if (originalToRedefinitionMap.size() == 0){
 				System.err.println("\tNo Field differences!");
 			}
@@ -283,6 +293,11 @@ public class SemanticDiffer{
 			}else if(removedMethods.size() != 0){
 				System.err.println("\tMethod(s) has been removed");
 				System.err.println(removedMethods);
+				for(SootMethod m : removedMethods){
+					//silly thing to have this flag
+					m.setDeclared(false);
+					redefinition.addMethod(m);
+				}
 			}else if (originalToRedefinitionMap.size() == 0){
 				System.err.println("\tNo Method differences!");
 			}
