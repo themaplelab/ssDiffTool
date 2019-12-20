@@ -4,6 +4,12 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
+import java.io.IOException;
+
+import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.ParseException;
@@ -14,6 +20,7 @@ import soot.G;
 import soot.Main;
 import soot.PackManager;
 import soot.Scene;
+import soot.SourceLocator;
 import soot.Transform;
 import soot.Transformer;
 import soot.SceneTransformer;
@@ -21,12 +28,17 @@ import soot.SootClass;
 import soot.SootField;
 import soot.SootMethod;
 import soot.util.Chain;
+import soot.jimple.JasminClass;
+import soot.options.Options;
+import soot.util.JasminOutputStream;
 
 public class SemanticDiffer{
 
 
 	private static CommandLine options;
 	private static String renameResultDir = ".";
+	private static SootClass newClass;
+	private static PatchTransformer patchTransformer = new PatchTransformer();
 	
 	public static void main(String[] args) throws ParseException {
 
@@ -126,8 +138,32 @@ public class SemanticDiffer{
 				//weird hack to get soot/asm to fix all references in the class to align with renaming to OG name
 				redefinition.rename("HelloOriginal");
 				redefinition.rename("Hello");
+				if(newClass != null){
+					//this should get it to also be output'ed, if it exists
+					//newClass.setApplicationClass();
+					Scene.v().addClass(newClass);
+					writeNewClass(newClass);
+				}
 			}
 		};
+	}
+
+	//thank you tutorial: https://www.sable.mcgill.ca/soot/tutorial/createclass/
+	private static void writeNewClass(SootClass newClass){
+		try{
+			String fileName = SourceLocator.v().getFileNameFor(newClass, Options.output_format_class);
+			OutputStream streamOut = new JasminOutputStream(new FileOutputStream(fileName));
+			PrintWriter writerOut = new PrintWriter(new OutputStreamWriter(streamOut));
+			
+			JasminClass jasminClass = new JasminClass(newClass);
+			jasminClass.print(writerOut);
+			writerOut.flush();
+			streamOut.close();
+		}catch (IOException e){
+			System.out.println("Could not write a transformer redefinition file!");
+			e.printStackTrace();
+		}
+		
 	}
 
 	private static void diff(SootClass original, SootClass redefinition){
@@ -290,6 +326,14 @@ public class SemanticDiffer{
 			if(addedMethods.size() != 0){	
 				System.err.println("\t Method(s) have been added.");
 				System.err.println(addedMethods);
+				newClass = new SootClass("newClass", redefinition.getModifiers());
+				newClass.setSuperclass(redefinition.getSuperclass());
+				for(SootMethod m : addedMethods){
+					m.setDeclared(false);
+					m.retrieveActiveBody();
+					newClass.addMethod(m);
+				}
+				patchTransformer.transformMethodCalls(redefinition, addedMethods);
 			}else if(removedMethods.size() != 0){
 				System.err.println("\tMethod(s) has been removed");
 				System.err.println(removedMethods);
