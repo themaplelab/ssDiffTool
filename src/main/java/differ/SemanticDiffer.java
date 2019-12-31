@@ -38,7 +38,7 @@ public class SemanticDiffer{
 	private static CommandLine options;
 	private static String renameResultDir = ".";
 	private static SootClass newClass;
-	private static PatchTransformer patchTransformer = new PatchTransformer();
+	private static PatchTransformer patchTransformer;
 	
 	public static void main(String[] args) throws ParseException {
 
@@ -134,6 +134,12 @@ public class SemanticDiffer{
 
 				System.err.println("FINALSET:");
 				System.err.println(Scene.v().getClasses());
+
+				//TODO find better way to init
+				newClass = new SootClass("newClass", redefinition.getModifiers());
+                newClass.setSuperclass(redefinition.getSuperclass());
+				patchTransformer = new PatchTransformer(newClass);
+				
 				diff(original, redefinition);
 				//weird hack to get soot/asm to fix all references in the class to align with renaming to OG name
 				redefinition.rename("HelloOriginal");
@@ -241,6 +247,7 @@ public class SemanticDiffer{
 			if(addedFields.size() != 0){	
 				System.err.println("\t Field(s) have been added.");
 				System.err.println(addedFields);
+				patchTransformer.transformFields(redefinition, addedFields);
 			}else if(removedFields.size() != 0){
 				System.err.println("\tField(s) has been removed");
 				System.err.println(removedFields);
@@ -326,8 +333,6 @@ public class SemanticDiffer{
 			if(addedMethods.size() != 0){	
 				System.err.println("\t Method(s) have been added.");
 				System.err.println(addedMethods);
-				newClass = new SootClass("newClass", redefinition.getModifiers());
-				newClass.setSuperclass(redefinition.getSuperclass());
 				for(SootMethod m : addedMethods){
 					m.setDeclared(false);
 					m.retrieveActiveBody();
