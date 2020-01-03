@@ -136,7 +136,7 @@ public class SemanticDiffer{
 				System.err.println(Scene.v().getClasses());
 
 				//TODO find better way to init
-				newClass = new SootClass("newClass", redefinition.getModifiers());
+				newClass = new SootClass(redefinition.getPackageName()+"newClass", redefinition.getModifiers());
                 newClass.setSuperclass(redefinition.getSuperclass());
 				patchTransformer = new PatchTransformer(newClass);
 				

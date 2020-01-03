@@ -20,10 +20,12 @@ import soot.Unit;
 import soot.PatchingChain;
 import soot.jimple.InvokeExpr;
 import soot.jimple.Stmt;
+import soot.jimple.DefinitionStmt;
 import soot.Type;
 import soot.VoidType;
 import soot.Local;
 import soot.ValueBox;
+import soot.Value;
 import soot.util.Chain;
 import soot.jimple.Jimple;
 import soot.jimple.JimpleBody;
@@ -34,7 +36,9 @@ public class PatchTransformer{
 	private SootClass newClass;
 	private boolean newClassHasStaticInit = false;
 	private Filter explicitInvokesFilter;
-	private HashMap<SootField, SootMethod> fieldToAccessor = new HashMap<SootField, SootMethod>();
+	//idk if this is best or second element on one hashmap should be list
+	private HashMap<SootField, SootMethod> fieldToGetter = new HashMap<SootField, SootMethod>();
+	private HashMap<SootField, SootMethod> fieldToSetter = new HashMap<SootField, SootMethod>();
 	private HashMap<SootField, SootField> oldFieldToNew = new HashMap<SootField, SootField>();
 	
 	public PatchTransformer(SootClass newClass){
@@ -88,13 +92,6 @@ public class PatchTransformer{
 		for(SootField field : addedFields){
 			redefinition.removeField(field);
 		}
-		//have to do this last bc finding the fieldrefs rely on the field still belonging to redef class
-		/*		for(SootField field : addedFields){
-			System.out.println("Initially: " + field + "is static: "+ field.isStatic());
-			redefinition.removeField(field);
-			newClass.addField(field);
-			System.out.println("After removal then readd: " + field + "is static: "+ field.isStatic());
-			}*/
 	}
 
 	//adds the field to the new class and if the field was private constructs an accessor for it
@@ -106,32 +103,49 @@ public class PatchTransformer{
 		
 		System.out.println("is the newfield static?: "+ newField.isStatic());
 		System.out.println("is the newfield phantom for some reason?:"+ newField.isPhantom());
-		
-		if(field.isPrivate()){
-            String methodName =	"get"+ field.getName();
-			
+
+		//construct getter and setter for even public fields
+		String methodName =	"get"+ field.getName();
+
+		//getter first
 			//need the acessor to be public , might need to also be static
-			int modifiers = Modifier.PUBLIC;
+			int modifiers = Modifier.PROTECTED;
 			if(field.isStatic()){
 				modifiers |= Modifier.STATIC;
 			}
-			SootMethod newAccessor = new SootMethod(methodName, Arrays.asList(new Type[]{}), field.getType(), modifiers);
+			SootMethod newGetter = new SootMethod(methodName, Arrays.asList(new Type[]{}), field.getType(), modifiers);
 
-			JimpleBody body = Jimple.v().newBody(newAccessor);
-			newAccessor.setActiveBody(body);
-
-			Chain units = body.getUnits();
+			JimpleBody getterBody = Jimple.v().newBody(newGetter);
+			newGetter.setActiveBody(getterBody);
+			Chain units = getterBody.getUnits();
 
 			//must create local then can return that
 			Local tmpref =  Jimple.v().newLocal("tmpref", field.getType());
-			body.getLocals().add(tmpref);
+			getterBody.getLocals().add(tmpref);
 			units.add(Jimple.v().newAssignStmt(tmpref, Jimple.v().newStaticFieldRef(newField.makeRef())));
 			units.add(Jimple.v().newReturnStmt(tmpref));
 			
-            newClass.addMethod(newAccessor);
-			fieldToAccessor.put(field, newAccessor);
+			newClass.addMethod(newGetter);
+			fieldToGetter.put(field, newGetter);
+
+			//make setter too
+			String setterMethodName = "set"+ field.getName();
+			//may have some issue here if there was casting for stmts we will replace...
+			SootMethod newSetter = new SootMethod(setterMethodName, Arrays.asList(new Type[]{field.getType()}), VoidType.v(), modifiers);
+
+            JimpleBody setterBody = Jimple.v().newBody(newSetter);
+			newSetter.setActiveBody(setterBody);
+			Chain setterUnits = setterBody.getUnits();
+			//have to assign the param to a local first, cannot go directly from param to assignstmt, idk exactly why
+			Local paramref =  Jimple.v().newLocal("paramref", field.getType());
+			setterBody.getLocals().add(paramref);
+			setterUnits.add(Jimple.v().newIdentityStmt(paramref, Jimple.v().newParameterRef(field.getType(), 0)));
+			setterUnits.add(Jimple.v().newAssignStmt(Jimple.v().newStaticFieldRef(newField.makeRef()), paramref));
+			setterUnits.add(Jimple.v().newReturnVoidStmt());
+			newClass.addMethod(newSetter);
+			fieldToSetter.put(field, newSetter);
         }
-	}
+
 
 	private void fixFieldRefs(SootClass redefinition){
 		for(SootMethod m : redefinition.getMethods()){
@@ -148,7 +162,7 @@ public class PatchTransformer{
 				Stmt s = (Stmt)u;
 				if(s.containsFieldRef()){
 					SootField ref = s.getFieldRef().getField();
-					SootMethod newAccessor = fieldToAccessor.get(ref);
+					SootField newref = oldFieldToNew.get(ref);
 
 					if(containsUse(u, ref)){
 						System.out.println("-------------------------------");
@@ -161,7 +175,7 @@ public class PatchTransformer{
 						System.out.println("-------------------------------");
 					}
 					
-					if(newAccessor != null){
+					if(newref != null){
 
 						//must steal initialization if the field is static
 						// is the second check even needed?
@@ -173,17 +187,33 @@ public class PatchTransformer{
 							newClass.getMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v()).retrieveActiveBody().getUnits().addFirst(u);
 
 						}else {
-						
-						System.out.println("doing a field ref replace: " + ref + " --->" + newAccessor);
-						System.out.println("in this statement: "+ s);
 
-						Local tmpRef = Jimple.v().newLocal("tmpRef", ref.getType());
-						body.getLocals().add(tmpRef);
-						
-						units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticInvokeExpr(newAccessor.makeRef())), u);  
+							ValueBox fieldref = s.getFieldRefBox();
+							if(u.getUseBoxes().contains(fieldref)){
 
-						s.getFieldRefBox().setValue(tmpRef);
+								SootMethod newAccessor = fieldToGetter.get(ref);
+								System.out.println("doing a field ref replace: " + ref + " --->" + newAccessor);
+								System.out.println("in this statement: "+ s);
+								
+								Local tmpRef = Jimple.v().newLocal("tmpRef", ref.getType());
+								body.getLocals().add(tmpRef);
+								
+								units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticInvokeExpr(newAccessor.makeRef())), u);
 
+								s.getFieldRefBox().setValue(tmpRef);
+								
+							}
+							if(u.getDefBoxes().contains(fieldref)){
+
+								SootMethod newAccessor = fieldToSetter.get(ref);
+								System.out.println("doing a field ref replace: " + ref + " --->" + newAccessor);
+								System.out.println("in this statement: "+ s);
+								//def boxes only to be nonempty on identitystmts or assignstmts
+								units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newStaticInvokeExpr(newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
+								units.remove(u);
+								
+
+							}
 						}
 					}
 
