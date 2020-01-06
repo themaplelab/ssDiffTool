@@ -77,7 +77,10 @@ public class SemanticDiffer{
 		PackManager.v().getPack("wjtp").remove("wjtp.renameTransform");
 		G.reset();
 		PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTransform", createDiffTransformer()));
+		options2.set(1, options.getOptionValue("redefcp")+":.:/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/rt.jar:/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/jce.jar");
+		options2.set(options2.size()-3, "Test");
 		System.out.println("Second soot has these options: " + options2);
+		
         soot.Main.main(options2.toArray(new String[0]));
 	}
 
@@ -334,8 +337,8 @@ public class SemanticDiffer{
 				System.err.println("\t Method(s) have been added.");
 				System.err.println(addedMethods);
 				for(SootMethod m : addedMethods){
-					m.setDeclared(false);
 					m.retrieveActiveBody();
+					m.setDeclared(false);
 					newClass.addMethod(m);
 				}
 				patchTransformer.transformMethodCalls(redefinition, addedMethods);
