@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Iterator;
 import java.util.HashMap;
+import java.util.Map;
 
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.ExplicitEdgesPred;
@@ -15,6 +16,7 @@ import soot.Scene;
 import soot.SootClass;
 import soot.SootField;
 import soot.SootMethod;
+import soot.SootMethodRef;
 import soot.Body;
 import soot.Unit;
 import soot.PatchingChain;
@@ -40,6 +42,8 @@ public class PatchTransformer{
 	private HashMap<SootField, SootMethod> fieldToGetter = new HashMap<SootField, SootMethod>();
 	private HashMap<SootField, SootMethod> fieldToSetter = new HashMap<SootField, SootMethod>();
 	private HashMap<SootField, SootField> oldFieldToNew = new HashMap<SootField, SootField>();
+
+	private HashMap<SootMethodRef, SootMethodRef> oldMethodToNew = new HashMap<SootMethodRef, SootMethodRef>(); 
 	
 	public PatchTransformer(SootClass newClass){
 		this.newClass = newClass;
@@ -48,9 +52,28 @@ public class PatchTransformer{
 
 	
 	public void transformMethodCalls(SootClass redefinition, List<SootMethod> addedMethods){
-		for(SootMethod m : redefinition.getMethods()){
+		//remove the added methods from redefinition class
+		//and place into wrapper class
+		for(SootMethod m : addedMethods){
+			SootMethodRef oldRef = m.makeRef();
+			redefinition.removeMethod(m);
+			newClass.addMethod(m);
+			oldMethodToNew.put(oldRef, m.makeRef());
+		}
+		System.out.println("THISIS METHOD MAP");
+		System.out.println(oldMethodToNew);
+		for(Map.Entry<SootMethodRef, SootMethodRef> m : oldMethodToNew.entrySet()){
+			System.out.println(m.getKey() + " "+ m.getValue());
+		}
+		//then patch the invokes, in two parts
+		for(SootMethod m : addedMethods){
+			//for calls in the added methods ,we cannot find a change set, so do our best and guard the rest
 			findMethodCalls(m);
 		}
+		for(SootMethod m : redefinition.getMethods()){
+            //find a change set and patch what we can and guard the rest, but only in the change set
+			findMethodCalls(m);
+        }
 	}
 
 	private void findMethodCalls(SootMethod m){
@@ -71,11 +94,21 @@ public class PatchTransformer{
 				System.out.println(".....................................");
 				Iterator targets = new Targets(explicitInvokesFilter.wrap(cg.edgesOutOf(s)));
 				System.out.println(targets);
-				while(targets.hasNext()){
-					System.out.println((SootMethod)targets.next());
-					
-				}
+				//	while(targets.hasNext()){
+				//	System.out.println(targets.next());
+				//}
 				System.out.println(".....................................");
+				if(targets.hasNext()){
+					SootMethod target = (SootMethod) targets.next();
+					if(oldMethodToNew.get(invokeExpr.getMethodRef()) != null && !targets.hasNext()){
+						System.out.println("replacing a method call in this statement: "+ s);
+						System.out.println(invokeExpr.getMethodRef() + " ---> " + oldMethodToNew.get(invokeExpr.getMethodRef()));
+						//condition where the cg has only one explicit target for this call
+						invokeExpr.setMethodRef(oldMethodToNew.get(invokeExpr.getMethodRef()));
+					}
+				}else{
+					System.out.println("Did not do anything with this statment: " + s);
+				}
 			}
 		System.out.println("-------------------------------");
 		}

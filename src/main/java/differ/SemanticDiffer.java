@@ -336,11 +336,6 @@ public class SemanticDiffer{
 			if(addedMethods.size() != 0){	
 				System.err.println("\t Method(s) have been added.");
 				System.err.println(addedMethods);
-				for(SootMethod m : addedMethods){
-					m.retrieveActiveBody();
-					m.setDeclared(false);
-					newClass.addMethod(m);
-				}
 				patchTransformer.transformMethodCalls(redefinition, addedMethods);
 			}else if(removedMethods.size() != 0){
 				System.err.println("\tMethod(s) has been removed");
