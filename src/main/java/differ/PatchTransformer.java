@@ -31,7 +31,8 @@ import soot.Value;
 import soot.util.Chain;
 import soot.jimple.Jimple;
 import soot.jimple.JimpleBody;
-	
+import soot.jimple.StaticInvokeExpr;
+import soot.jimple.ThisRef;	
 
 public class PatchTransformer{
 
@@ -81,11 +82,17 @@ public class PatchTransformer{
 		Body body;
 		System.out.println("Finding method calls in : "+ m.getSignature());
 		System.out.println("-------------------------------");
-		body = m.retrieveActiveBody(); 
-		PatchingChain<Unit> units = body.getUnits();
-		for (Unit u: units) { // for each statement
-			Stmt s = (Stmt)u;
+		body = m.retrieveActiveBody();
 
+		//need to be able to concurrently mod
+		PatchingChain<Unit> units = body.getUnits();
+		Iterator<Unit> it = units.snapshotIterator();
+
+		while (it.hasNext()) {
+
+			Unit u = it.next();
+			Stmt s = (Stmt)u;
+				
 			if (s.containsInvokeExpr()) {
                 InvokeExpr invokeExpr = s.getInvokeExpr();
 				System.out.println("Found a method call: "+invokeExpr.getMethodRef() );
@@ -104,10 +111,34 @@ public class PatchTransformer{
 						System.out.println("replacing a method call in this statement: "+ s);
 						System.out.println(invokeExpr.getMethodRef() + " ---> " + oldMethodToNew.get(invokeExpr.getMethodRef()));
 						//condition where the cg has only one explicit target for this call
-						invokeExpr.setMethodRef(oldMethodToNew.get(invokeExpr.getMethodRef()));
+						if(invokeExpr instanceof StaticInvokeExpr){
+							//if its a static invoke we can just replace ref
+							invokeExpr.setMethodRef(oldMethodToNew.get(invokeExpr.getMethodRef()));
+						} else {
+							//otherwise we gotta create a var of newClass type to invoke this on
+							//TODO make this safe... need to singleton the locals ugh
+							System.out.println("This is the newclass getType: "+  newClass.getType()); 
+							Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
+							body.getLocals().add(invokeobj);
+							//TODO fix this for the methodrefs in the added methods, those should just use "this" not new local
+							createInitializer();
+							units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType())), u);
+							units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())) , u);
+							units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, oldMethodToNew.get(invokeExpr.getMethodRef()), invokeExpr.getArgs())) , u);
+							units.remove(u);
+						}
+					} else {
+						System.out.println("There are potentially multiple targets: ");
+						System.out.println("................................");
+						while(targets.hasNext()){
+							System.out.println(target);
+						    target = (SootMethod) targets.next();
+						}
+						System.out.println("................................");
 					}
+					
 				}else{
-					System.out.println("Did not do anything with this statment: " + s);
+					System.out.println("Did not do anything with this statment: " + s + " because there were no targets at all.");
 				}
 			}
 		System.out.println("-------------------------------");
@@ -255,9 +286,32 @@ public class PatchTransformer{
 		}
 	}
 
+	private void createInitializer(){
+		//only want to create one initialization function
+		 if(newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()) == null){
+			 //is that a good access level? no reason to not use public, but ... should we?
+			 SootMethod initializer = new SootMethod("<init>", Arrays.asList(new Type[]{}), VoidType.v(), Modifier.PROTECTED);
+			 JimpleBody body = Jimple.v().newBody(initializer);
+			 initializer.setActiveBody(body);
+			 Chain units = body.getUnits();
+			 Local selfref =  Jimple.v().newLocal("selfref", newClass.getType());
+			 body.getLocals().add(selfref);
+			 units.add(Jimple.v().newIdentityStmt(selfref, new ThisRef(newClass.getType())));
+			 SootMethod parentConstructor = newClass.getSuperclass().getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v());
+			 System.out.println("This is the newclass's parent: "+ newClass.getSuperclass());
+			 if(parentConstructor == null){
+				 System.out.println("The parent constructor was null...");
+				 //this cannot happen... the newClass is not Object... should throw here maybe
+			 }
+			 units.add(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(selfref, parentConstructor.makeRef())));
+			 units.add(Jimple.v().newReturnVoidStmt());
+			 newClass.addMethod(initializer);
+		 }
+	}
+		
 	private void createStaticInitializer(){
 		//only want to create one static initialization function
-		if(!newClassHasStaticInit){
+		if(newClass.getMethodUnsafe("<clinit>", Arrays.asList(new Type[]{}), VoidType.v()) == null){
 			SootMethod initializer = new SootMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v(), Modifier.STATIC);
 			JimpleBody body = Jimple.v().newBody(initializer);
             initializer.setActiveBody(body);
