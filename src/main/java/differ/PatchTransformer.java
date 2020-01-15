@@ -63,9 +63,6 @@ public class PatchTransformer{
 		}
 		System.out.println("THISIS METHOD MAP");
 		System.out.println(oldMethodToNew);
-		for(Map.Entry<SootMethodRef, SootMethodRef> m : oldMethodToNew.entrySet()){
-			System.out.println(m.getKey() + " "+ m.getValue());
-		}
 		//then patch the invokes, in two parts
 		for(SootMethod m : addedMethods){
 			//for calls in the added methods ,we cannot find a change set, so do our best and guard the rest
@@ -100,13 +97,10 @@ public class PatchTransformer{
 				System.out.println("Printing the targets of this call: ");
 				System.out.println(".....................................");
 				Iterator targets = new Targets(explicitInvokesFilter.wrap(cg.edgesOutOf(s)));
-				System.out.println(targets);
-				//	while(targets.hasNext()){
-				//	System.out.println(targets.next());
-				//}
 				System.out.println(".....................................");
 				if(targets.hasNext()){
 					SootMethod target = (SootMethod) targets.next();
+					System.out.println(target);
 					if(oldMethodToNew.get(invokeExpr.getMethodRef()) != null && !targets.hasNext()){
 						System.out.println("replacing a method call in this statement: "+ s);
 						System.out.println(invokeExpr.getMethodRef() + " ---> " + oldMethodToNew.get(invokeExpr.getMethodRef()));
@@ -128,13 +122,15 @@ public class PatchTransformer{
 							units.remove(u);
 						}
 					} else {
-						System.out.println("There are potentially multiple targets: ");
-						System.out.println("................................");
-						while(targets.hasNext()){
-							System.out.println(target);
-						    target = (SootMethod) targets.next();
+						if(targets.hasNext()){
+							System.out.println("There are potentially multiple targets in this stmt: " + s);
+							System.out.println("................................");
+							while(targets.hasNext()){
+								target = (SootMethod) targets.next();
+								System.out.println(target);
+							}
+							System.out.println("................................");
 						}
-						System.out.println("................................");
 					}
 					
 				}else{
