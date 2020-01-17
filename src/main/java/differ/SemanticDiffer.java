@@ -40,6 +40,7 @@ public class SemanticDiffer{
 	private static CommandLine options;
 	private static String renameResultDir = ".";
 	private static HashMap<SootClass, SootClass> newClassMap = new HashMap<SootClass, SootClass>();
+	private static HashMap<SootClass, SootClass> newClassMapReversed = new HashMap<SootClass, SootClass>();
 	private static PatchTransformer patchTransformer;
 	private static HashMap<SootClass, SootClass> originalToRedefinitionClassMap = new HashMap<SootClass, SootClass>();
 	
@@ -120,9 +121,10 @@ public class SemanticDiffer{
 
 				Scene.v().setSootClassPath(options.getOptionValue("redefcp"));
 				ArrayList<SootClass> allRedefs = resolveClasses(options.getOptionValue("redefcp"));
-				//for(SootClass redef : allRedefs){
-					//idk if we need to set the app classes
-				//}
+				for(SootClass redef : allRedefs){
+					//this is so that the redef classes will also get output'd by soot
+					redef.setApplicationClass();
+				}
 
 				System.err.println("Classes after redef hello load: ");
 				System.err.println(Scene.v().getApplicationClasses());
@@ -149,18 +151,29 @@ public class SemanticDiffer{
 					System.err.println("redefinition resolving level: "+ redefinition.resolvingLevel());
 				}
 
+
+				patchTransformer = new PatchTransformer(newClassMap, newClassMapReversed);
+
 				//System.err.println("FINALSET:");
 				//System.err.println(Scene.v().getClasses());
 
-				//TODO find better way to init
-				SootClass newClass = new SootClass(redefinition.getPackageName()+"newClass", redefinition.getModifiers());
-                newClass.setSuperclass(redefinition.getSuperclass());
-				newClassMap.put(redefinition, newClass);
-				patchTransformer = new PatchTransformer(newClassMap.get(redefinition));
-
+				//TODO find better way to init, some of this wont work under nonequal og:redef ratios
+				for(SootClass redef : allRedefs){
+					SootClass newClass = new SootClass(redef.getPackageName()+redef.getName()+"NewClass", redef.getModifiers());
+					newClass.setSuperclass(redef.getSuperclass());
+					newClassMap.put(redef, newClass);
+					newClassMapReversed.put(newClass, redef);
+				}
 				for(SootClass og : allOriginals){
 					diff(og, originalToRedefinitionClassMap.get(og));
 				}
+				//now? fix all of the method references everywhere, in classes we are outputting
+				for(SootClass redef : allRedefs){
+					patchTransformer.transformMethodCalls(redef.getMethods());
+					//might need to omit the init and clinit on this one?
+					patchTransformer.transformMethodCalls(newClassMap.get(redef).getMethods());
+				}
+				
 				//weird hack to get soot/asm to fix all references in the class to align with renaming to OG name
 				for(SootClass redef : allRedefs){
 					String ogRedefName = redef.getName();
@@ -207,7 +220,7 @@ public class SemanticDiffer{
 	}
 
 	private static void diff(SootClass original, SootClass redefinition){
-		System.err.println("---------------------------------------");
+		System.err.println("\n##########################################");
 		System.err.println("Diff Report for original: " + original.getName() + " compared to redefinition: "+ redefinition.getName());
 		System.err.println("---------------------------------------");
 		checkFields(original, redefinition);
@@ -215,7 +228,7 @@ public class SemanticDiffer{
 		checkMethods(original, redefinition);
 		System.err.println("---------------------------------------");
         checkInheritance(original, redefinition);
-        System.err.println("---------------------------------------");
+        System.err.println("##########################################\n");
 	}
 	
 	private static void checkFields(SootClass original, SootClass redefinition){
@@ -367,7 +380,8 @@ public class SemanticDiffer{
 			if(addedMethods.size() != 0){	
 				System.err.println("\t Method(s) have been added.");
 				System.err.println(addedMethods);
-				patchTransformer.transformMethodCalls(redefinition, addedMethods);
+				//do the method stealing as we go
+				patchTransformer.stealMethodCalls(redefinition, addedMethods);
 			}else if(removedMethods.size() != 0){
 				System.err.println("\tMethod(s) has been removed");
 				System.err.println(removedMethods);
@@ -401,9 +415,10 @@ public class SemanticDiffer{
 		}
 	}
 
-	private static int ownEquivMethodHash(SootMethod method){
+	protected static int ownEquivMethodHash(SootMethod method){
 		//considers the params, since they would be in a signature, unlike:
 		//https://github.com/Sable/soot/blob/master/src/main/java/soot/SootMethod.java#L133
+		//basically we treat each definition of an overloaded method as different, while soot would not (for some reason)
 		return method.getReturnType().hashCode() * 101 + method.getModifiers() * 17 + method.getName().hashCode() + method.getParameterTypes().hashCode();
 
 	}

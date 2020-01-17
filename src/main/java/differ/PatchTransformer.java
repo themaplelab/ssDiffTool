@@ -5,12 +5,14 @@ import java.util.List;
 import java.util.Iterator;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Collection;
 
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.ExplicitEdgesPred;
 import soot.jimple.toolkits.callgraph.Filter;
 import soot.jimple.toolkits.callgraph.Targets;
 
+import soot.jimple.ClassConstant;
 import soot.Modifier;
 import soot.Scene;
 import soot.SootClass;
@@ -20,7 +22,9 @@ import soot.SootMethodRef;
 import soot.Body;
 import soot.Unit;
 import soot.PatchingChain;
+import soot.util.HashChain;
 import soot.jimple.InvokeExpr;
+import soot.jimple.InstanceInvokeExpr;
 import soot.jimple.Stmt;
 import soot.jimple.DefinitionStmt;
 import soot.Type;
@@ -36,7 +40,10 @@ import soot.jimple.ThisRef;
 
 public class PatchTransformer{
 
-	private SootClass newClass;
+	private HashMap<SootClass, SootClass> redefToNewClassMap;
+	//we have guarantee 1:1 map, this is needed for ref fixing, is ugly but again, what else?
+	private HashMap<SootClass, SootClass> newToRedefClassMap;
+	//TODO rm newClassHasStaticInit in a cleanup commit
 	private boolean newClassHasStaticInit = false;
 	private Filter explicitInvokesFilter;
 	//idk if this is best or second element on one hashmap should be list
@@ -46,30 +53,36 @@ public class PatchTransformer{
 
 	private HashMap<SootMethodRef, SootMethodRef> oldMethodToNew = new HashMap<SootMethodRef, SootMethodRef>(); 
 	
-	public PatchTransformer(SootClass newClass){
-		this.newClass = newClass;
+	public PatchTransformer(HashMap<SootClass, SootClass> newClassMap, HashMap<SootClass, SootClass> newClassMapReversed){
+		//just want a ref, to same structure in SemanticDiffer
+		this.redefToNewClassMap = newClassMap;
+		this.newToRedefClassMap = newClassMapReversed;
 		explicitInvokesFilter = new Filter(new ExplicitEdgesPred());
 	}
 
-	
-	public void transformMethodCalls(SootClass redefinition, List<SootMethod> addedMethods){
+	public void stealMethodCalls(SootClass redefinition, List<SootMethod> addedMethods){
 		//remove the added methods from redefinition class
 		//and place into wrapper class
 		for(SootMethod m : addedMethods){
 			SootMethodRef oldRef = m.makeRef();
 			redefinition.removeMethod(m);
-			newClass.addMethod(m);
+			redefToNewClassMap.get(redefinition).addMethod(m);
 			oldMethodToNew.put(oldRef, m.makeRef());
 		}
 		System.out.println("THISIS METHOD MAP");
 		System.out.println(oldMethodToNew);
-		//then patch the invokes, in two parts
-		for(SootMethod m : addedMethods){
-			//for calls in the added methods ,we cannot find a change set, so do our best and guard the rest
-			findMethodCalls(m);
+		
+	}
+
+	//checks all of the provided methods for method refs that need fixing
+	public void transformMethodCalls(List<SootMethod> methods){
+		//the annoying issue of adding a constructor to this class if needed, which is determined while looping the methods
+		Chain<SootMethod> methodsChain = new HashChain<SootMethod>();
+	    for(SootMethod m : methods){
+			methodsChain.add(m);
 		}
-		for(SootMethod m : redefinition.getMethods()){
-            //find a change set and patch what we can and guard the rest, but only in the change set
+		for (Iterator<SootMethod> iter = methodsChain.snapshotIterator(); iter.hasNext();) {
+			SootMethod m = iter.next();
 			findMethodCalls(m);
         }
 	}
@@ -101,6 +114,7 @@ public class PatchTransformer{
 				if(targets.hasNext()){
 					SootMethod target = (SootMethod) targets.next();
 					System.out.println(target);
+					//could use the target or the ref here, since in this case they should be the same
 					if(oldMethodToNew.get(invokeExpr.getMethodRef()) != null && !targets.hasNext()){
 						System.out.println("replacing a method call in this statement: "+ s);
 						System.out.println(invokeExpr.getMethodRef() + " ---> " + oldMethodToNew.get(invokeExpr.getMethodRef()));
@@ -111,11 +125,14 @@ public class PatchTransformer{
 						} else {
 							//otherwise we gotta create a var of newClass type to invoke this on
 							//TODO make this safe... need to singleton the locals ugh
+							System.out.println("This is the redeftonewMap" + redefToNewClassMap);
+							System.out.println("This is the target decl decl class: "+  target.getDeclaringClass().getName());
+							SootClass newClass = target.getDeclaringClass();
 							System.out.println("This is the newclass getType: "+  newClass.getType()); 
 							Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
 							body.getLocals().add(invokeobj);
 							//TODO fix this for the methodrefs in the added methods, those should just use "this" not new local
-							createInitializer();
+							createInitializer(newClass);
 							units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType())), u);
 							units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())) , u);
 							units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, oldMethodToNew.get(invokeExpr.getMethodRef()), invokeExpr.getArgs())) , u);
@@ -125,9 +142,78 @@ public class PatchTransformer{
 						if(targets.hasNext()){
 							System.out.println("There are potentially multiple targets in this stmt: " + s);
 							System.out.println("................................");
+							//todo refactor maybe
+							if(oldMethodToNew.values().contains(target.makeRef())){
+								//this target was one that we moved from a redefinition into a newClass                     
+                                    System.out.println("This target is one we stole: "+ target);
+									for(SootMethodRef match : oldMethodToNew.values()){
+										if(match.equals(target.makeRef())){
+											//TODOBUILDGUARD
+											//if ref.getClass == method.getDeclaringClass:
+											//    method call
+											/*SootClass newClass = redefToNewClassMap.get(target.getDeclaringClass());
+											System.out.println("This is the newclass getType: "+  newClass.getType());
+											Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
+											body.getLocals().add(invokeobj);
+											//TODO fix this for the methodrefs in the added methods, those should just use "this" not new local
+											createInitializer(newClass);
+											Unit newBlock = Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType()));
+											units.addLast(newBlock);
+											units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())));
+											units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, oldMethodTonew.get(invokeExpr.getMethodRef()), invokeExpr.getArgs())));
+											//then jump back to insn after u
+											units.addLast(Jimple.v().newGotoStmt(it.next()));//it.next()
+											
+											SootMethod getClass = Scene.v().getSootClass("java.lang.Object").getMethod("Class<?> getClass()");
+											Stmt getClassStmt = Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeExpr.getBase(), getClass.makeRef()));
+											units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(invokeExpr.getBase(), target.getDeclaringClass()), newBlock), u);*/
+										}
+									}
+                                }
 							while(targets.hasNext()){
 								target = (SootMethod) targets.next();
-								System.out.println(target);
+								System.out.println("This is our oldMethodToNew map: "+ oldMethodToNew);
+								if(oldMethodToNew.values().contains(target.makeRef())){
+									//this target was one that we moved from a redefinition into a newClass
+									//todo this is where we would need to build guard
+									for(SootMethodRef match : oldMethodToNew.values()){
+                                        if(match.equals(target.makeRef())){
+									
+											System.out.println("This target is one we stole: "+ target);
+											//already performed the steal by now, so the current decl class is correct
+											SootClass newClass = target.getDeclaringClass();
+                                            System.out.println("This is the newclass getType: "+  newClass.getType());
+                                            Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
+                                            body.getLocals().add(invokeobj);
+                                            //TODO fix this for the methodrefs in the added methods, those should just use "this" not new local                                                                                                                
+                                            createInitializer(newClass);
+                                            Unit newBlock = Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType()));
+                                            units.addLast(newBlock);
+                                            units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())));
+
+											System.out.println("This is the method ref: "+ invokeExpr.getMethodRef());
+											units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())));
+                                            //then jump back to insn after u                                                    
+                                            units.addLast(Jimple.v().newGotoStmt(it.next()));
+											
+                                            SootMethod getClass = Scene.v().getMethod("<java.lang.Object: java.lang.Class getClass()>");
+
+											//construct locals to set as the types we want to compare
+											//the benefit/drawback of 3 address, do we actually need???
+											Local clz = Jimple.v().newLocal("clz", Scene.v().getType("java.lang.Class"));
+											body.getLocals().add(clz);
+											System.out.println("These are now the locals: "+ body.getLocals());
+											
+                                            units.insertBefore(Jimple.v().newAssignStmt(clz, Jimple.v().newVirtualInvokeExpr((Local)((InstanceInvokeExpr)invokeExpr).getBase(), getClass.makeRef())), u);
+
+											System.out.println("This is the (newToRedefClassMap: "+ newToRedefClassMap);
+                                            units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(clz, ClassConstant.fromType(newToRedefClassMap.get(target.getDeclaringClass()).getType())), newBlock), u);
+											//we know the target declare type statically...
+												}
+									}
+                                }else {
+									System.out.println(target);
+								}
 							}
 							System.out.println("................................");
 						}
@@ -140,11 +226,11 @@ public class PatchTransformer{
 		System.out.println("-------------------------------");
 		}
 	}
-
+	
 	public void transformFields(SootClass redefinition, List<SootField> addedFields){
 		//fixFieldRefs(redefinition);
 		for(SootField field : addedFields){
-			fixFields(field);
+			fixFields(field, redefinition);
 		}
 
 		fixFieldRefs(redefinition);
@@ -155,9 +241,10 @@ public class PatchTransformer{
 	}
 
 	//adds the field to the new class and if the field was private constructs an accessor for it
-	private void fixFields(SootField field){
+	private void fixFields(SootField field, SootClass redefinition){
 		//cant actually just move the same field ref, need it to exist in both classes simultaneously in order to fix refs
 		SootField newField = new SootField(field.getName(), field.getType(), field.getModifiers());
+		SootClass newClass = redefToNewClassMap.get(redefinition);
 		newClass.addField(newField); 
 		oldFieldToNew.put(field, newField);
 		
@@ -241,7 +328,8 @@ public class PatchTransformer{
 						// is the second check even needed?
 						if(m.getName().equals("<clinit>") && ref.isStatic()){
 							units.remove(u);
-							createStaticInitializer();
+							SootClass newClass = redefToNewClassMap.get(redefinition);
+							createStaticInitializer(newClass);
 							System.out.println("This is wahts in the box atm: " + s.getFieldRefBox().getValue());
 							s.getFieldRefBox().setValue(Jimple.v().newStaticFieldRef(oldFieldToNew.get(ref).makeRef()));
 							newClass.getMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v()).retrieveActiveBody().getUnits().addFirst(u);
@@ -282,7 +370,7 @@ public class PatchTransformer{
 		}
 	}
 
-	private void createInitializer(){
+	private void createInitializer(SootClass newClass){
 		//only want to create one initialization function
 		 if(newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()) == null){
 			 //is that a good access level? no reason to not use public, but ... should we?
@@ -305,7 +393,7 @@ public class PatchTransformer{
 		 }
 	}
 		
-	private void createStaticInitializer(){
+	private void createStaticInitializer(SootClass newClass){
 		//only want to create one static initialization function
 		if(newClass.getMethodUnsafe("<clinit>", Arrays.asList(new Type[]{}), VoidType.v()) == null){
 			SootMethod initializer = new SootMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v(), Modifier.STATIC);
