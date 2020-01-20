@@ -102,6 +102,7 @@ public class PatchTransformer{
 
 			Unit u = it.next();
 			Stmt s = (Stmt)u;
+			Unit insnAfterInvokeInsn = units.getSuccOf(u);
 				
 			if (s.containsInvokeExpr()) {
                 InvokeExpr invokeExpr = s.getInvokeExpr();
@@ -151,22 +152,7 @@ public class PatchTransformer{
 											//TODOBUILDGUARD
 											//if ref.getClass == method.getDeclaringClass:
 											//    method call
-											/*SootClass newClass = redefToNewClassMap.get(target.getDeclaringClass());
-											System.out.println("This is the newclass getType: "+  newClass.getType());
-											Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
-											body.getLocals().add(invokeobj);
-											//TODO fix this for the methodrefs in the added methods, those should just use "this" not new local
-											createInitializer(newClass);
-											Unit newBlock = Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType()));
-											units.addLast(newBlock);
-											units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())));
-											units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, oldMethodTonew.get(invokeExpr.getMethodRef()), invokeExpr.getArgs())));
-											//then jump back to insn after u
-											units.addLast(Jimple.v().newGotoStmt(it.next()));//it.next()
-											
-											SootMethod getClass = Scene.v().getSootClass("java.lang.Object").getMethod("Class<?> getClass()");
-											Stmt getClassStmt = Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeExpr.getBase(), getClass.makeRef()));
-											units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(invokeExpr.getBase(), target.getDeclaringClass()), newBlock), u);*/
+											constructGuard(target, body , units, insnAfterInvokeInsn, u);
 										}
 									}
                                 }
@@ -178,38 +164,8 @@ public class PatchTransformer{
 									//todo this is where we would need to build guard
 									for(SootMethodRef match : oldMethodToNew.values()){
                                         if(match.equals(target.makeRef())){
-									
-											System.out.println("This target is one we stole: "+ target);
-											//already performed the steal by now, so the current decl class is correct
-											SootClass newClass = target.getDeclaringClass();
-                                            System.out.println("This is the newclass getType: "+  newClass.getType());
-                                            Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
-                                            body.getLocals().add(invokeobj);
-                                            //TODO fix this for the methodrefs in the added methods, those should just use "this" not new local                                                                                                                
-                                            createInitializer(newClass);
-                                            Unit newBlock = Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType()));
-                                            units.addLast(newBlock);
-                                            units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())));
-
-											System.out.println("This is the method ref: "+ invokeExpr.getMethodRef());
-											units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())));
-                                            //then jump back to insn after u                                                    
-                                            units.addLast(Jimple.v().newGotoStmt(it.next()));
-											
-                                            SootMethod getClass = Scene.v().getMethod("<java.lang.Object: java.lang.Class getClass()>");
-
-											//construct locals to set as the types we want to compare
-											//the benefit/drawback of 3 address, do we actually need???
-											Local clz = Jimple.v().newLocal("clz", Scene.v().getType("java.lang.Class"));
-											body.getLocals().add(clz);
-											System.out.println("These are now the locals: "+ body.getLocals());
-											
-                                            units.insertBefore(Jimple.v().newAssignStmt(clz, Jimple.v().newVirtualInvokeExpr((Local)((InstanceInvokeExpr)invokeExpr).getBase(), getClass.makeRef())), u);
-
-											System.out.println("This is the (newToRedefClassMap: "+ newToRedefClassMap);
-                                            units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(clz, ClassConstant.fromType(newToRedefClassMap.get(target.getDeclaringClass()).getType())), newBlock), u);
-											//we know the target declare type statically...
-												}
+											constructGuard(target, body , units, insnAfterInvokeInsn, u);
+										}
 									}
                                 }else {
 									System.out.println(target);
@@ -225,6 +181,65 @@ public class PatchTransformer{
 			}
 		System.out.println("-------------------------------");
 		}
+	}
+
+	/*
+	 * constructs a check on the runtime
+	 * type of the object that a method is 
+	 * invoked upon. if it matches type
+	 * that we stole from, then execution 
+	 * goes to a new block in program
+	 * that calls the new method in its new class
+	 *
+	 * original program:
+	 * ` a.someMethod()`
+	 *
+	 * fixed program:
+	 * ```
+	 * if(a.getClass == robbedClass.class):
+     *    robberClass.someMethod()
+     * else if:
+     *    //possibly more checks
+     * else:
+	 *    a.someMethod() // this may not be here if a no longer holds someMethod
+	 *
+	 * ```
+	 *
+	 */
+	private void constructGuard(SootMethod target, Body body, PatchingChain<Unit> units, Unit insnAfterInvokeInsn, Unit currentInsn){
+		InvokeExpr invokeExpr = ((Stmt)currentInsn).getInvokeExpr();
+		System.out.println("This target is one we stole: "+ target);
+		//already performed the steal by now, so the current decl class is correct          
+		SootClass newClass = target.getDeclaringClass();
+
+		//create the new block that contains the call to the new method
+		System.out.println("This is the newclass getType: "+  newClass.getType());
+		Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
+		body.getLocals().add(invokeobj);
+		//TODO fix this for the methodrefs in the added methods, those should just use "this" not new local
+		
+		createInitializer(newClass);
+		Unit newBlock = Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType()));
+		units.addLast(newBlock);
+		units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())));
+		System.out.println("This is the method ref: "+ invokeExpr.getMethodRef());
+		units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())));
+		//then jump back to insn after u
+		units.addLast(Jimple.v().newGotoStmt(insnAfterInvokeInsn));
+
+		//construct the check for the runtime type
+		SootMethod getClass = Scene.v().getMethod("<java.lang.Object: java.lang.Class getClass()>");
+		
+		//construct locals to set as the types we want to compare                           
+		//the benefit/drawback of 3 address, do we actually need???                         
+		Local clz = Jimple.v().newLocal("clz", Scene.v().getType("java.lang.Class"));
+		body.getLocals().add(clz);
+		System.out.println("These are now the locals: "+ body.getLocals());
+		
+		units.insertBefore(Jimple.v().newAssignStmt(clz, Jimple.v().newVirtualInvokeExpr((Local)((InstanceInvokeExpr)invokeExpr).getBase(), getClass.makeRef())), currentInsn);
+		
+		System.out.println("This is the (newToRedefClassMap: "+ newToRedefClassMap);
+		units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(clz, ClassConstant.fromType(newToRedefClassMap.get(target.getDeclaringClass()).getType())), newBlock), currentInsn);
 	}
 	
 	public void transformFields(SootClass redefinition, List<SootField> addedFields){
