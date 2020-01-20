@@ -6,6 +6,7 @@ import java.util.Iterator;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Collection;
+import java.util.ArrayList;
 
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.ExplicitEdgesPred;
@@ -51,7 +52,9 @@ public class PatchTransformer{
 	private HashMap<SootField, SootMethod> fieldToSetter = new HashMap<SootField, SootMethod>();
 	private HashMap<SootField, SootField> oldFieldToNew = new HashMap<SootField, SootField>();
 
+	//TODO decide if this is still needed?
 	private HashMap<SootMethodRef, SootMethodRef> oldMethodToNew = new HashMap<SootMethodRef, SootMethodRef>(); 
+	private ArrayList<SootMethod> newMethods = new ArrayList<SootMethod>();
 	
 	public PatchTransformer(HashMap<SootClass, SootClass> newClassMap, HashMap<SootClass, SootClass> newClassMapReversed){
 		//just want a ref, to same structure in SemanticDiffer
@@ -68,10 +71,11 @@ public class PatchTransformer{
 			redefinition.removeMethod(m);
 			redefToNewClassMap.get(redefinition).addMethod(m);
 			oldMethodToNew.put(oldRef, m.makeRef());
+			newMethods.add(m);
 		}
 		System.out.println("THISIS METHOD MAP");
 		System.out.println(oldMethodToNew);
-		
+		System.out.println("These are the new methods list: "+ newMethods);
 	}
 
 	//checks all of the provided methods for method refs that need fixing
@@ -115,14 +119,14 @@ public class PatchTransformer{
 				if(targets.hasNext()){
 					SootMethod target = (SootMethod) targets.next();
 					System.out.println(target);
-					//could use the target or the ref here, since in this case they should be the same
-					if(oldMethodToNew.get(invokeExpr.getMethodRef()) != null && !targets.hasNext()){
+					//relying solely on targets in the cg, since method refs could have child classes that rely on parent defs
+					if(newMethods.contains(target) && !targets.hasNext()){
 						System.out.println("replacing a method call in this statement: "+ s);
-						System.out.println(invokeExpr.getMethodRef() + " ---> " + oldMethodToNew.get(invokeExpr.getMethodRef()));
+						System.out.println(invokeExpr.getMethodRef() + " ---> " + target.makeRef());
 						//condition where the cg has only one explicit target for this call
 						if(invokeExpr instanceof StaticInvokeExpr){
 							//if its a static invoke we can just replace ref
-							invokeExpr.setMethodRef(oldMethodToNew.get(invokeExpr.getMethodRef()));
+							invokeExpr.setMethodRef(target.makeRef());
 						} else {
 							//otherwise we gotta create a var of newClass type to invoke this on
 							//TODO make this safe... need to singleton the locals ugh
@@ -136,7 +140,7 @@ public class PatchTransformer{
 							createInitializer(newClass);
 							units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType())), u);
 							units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())) , u);
-							units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, oldMethodToNew.get(invokeExpr.getMethodRef()), invokeExpr.getArgs())) , u);
+							units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())) , u);
 							units.remove(u);
 						}
 					} else {
@@ -144,32 +148,23 @@ public class PatchTransformer{
 							System.out.println("There are potentially multiple targets in this stmt: " + s);
 							System.out.println("................................");
 							//todo refactor maybe
-							if(oldMethodToNew.values().contains(target.makeRef())){
+							if(newMethods.contains(target)){
 								//this target was one that we moved from a redefinition into a newClass                     
-                                    System.out.println("This target is one we stole: "+ target);
-									for(SootMethodRef match : oldMethodToNew.values()){
-										if(match.equals(target.makeRef())){
-											//TODOBUILDGUARD
-											//if ref.getClass == method.getDeclaringClass:
-											//    method call
-											constructGuard(target, body , units, insnAfterInvokeInsn, u);
-										}
-									}
-                                }
+								System.out.println("This target is one we stole: "+ target);
+								//TODOBUILDGUARD
+								//if ref.getClass == method.getDeclaringClass:
+								//    method call
+								constructGuard(target, body , units, insnAfterInvokeInsn, u);
+							}
 							while(targets.hasNext()){
 								target = (SootMethod) targets.next();
-								System.out.println("This is our oldMethodToNew map: "+ oldMethodToNew);
-								if(oldMethodToNew.values().contains(target.makeRef())){
-									//this target was one that we moved from a redefinition into a newClass
-									//todo this is where we would need to build guard
-									for(SootMethodRef match : oldMethodToNew.values()){
-                                        if(match.equals(target.makeRef())){
-											constructGuard(target, body , units, insnAfterInvokeInsn, u);
-										}
-									}
-                                }else {
+								 if(newMethods.contains(target)){
+									 System.out.println("This target is one we stole: "+ target);
+									 constructGuard(target, body , units, insnAfterInvokeInsn, u);
+								 }
+								 else {
 									System.out.println(target);
-								}
+								 }
 							}
 							System.out.println("................................");
 						}
