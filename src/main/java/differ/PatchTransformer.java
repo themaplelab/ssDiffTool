@@ -133,15 +133,7 @@ public class PatchTransformer{
 							System.out.println("This is the redeftonewMap" + redefToNewClassMap);
 							System.out.println("This is the target decl decl class: "+  target.getDeclaringClass().getName());
 							SootClass newClass = target.getDeclaringClass();
-							System.out.println("This is the newclass getType: "+  newClass.getType()); 
-							Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
-							body.getLocals().add(invokeobj);
-							//TODO fix this for the methodrefs in the added methods, those should just use "this" not new local
-							createInitializer(newClass);
-							units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType())), u);
-							units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())) , u);
-							units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())) , u);
-							units.remove(u);
+							constructNewCall(newClass, invokeExpr, units, u, body);
 						}
 					} else {
 						if(targets.hasNext()){
@@ -166,6 +158,13 @@ public class PatchTransformer{
 									System.out.println(target);
 								 }
 							}
+							SootClass newClass = oldMethodToNew.get(invokeExpr.getMethodRef()).getDeclaringClass();
+							//ArrayList<SootClass> parents = 
+							constructNewCall(newClass, invokeExpr, units, u, body);
+							//now possibly replace the static method ref here as well
+							//if(oldToNewMethod.get(invokeExpr.getMethodRef()) != null){
+							//	Jimple.v().newInstanceOfExpr(invokeExpr).getBase(), invokeExpr.getMethod().getDeclaringClass());
+							//}
 							System.out.println("................................");
 						}
 					}
@@ -178,6 +177,23 @@ public class PatchTransformer{
 		}
 	}
 
+	private void constructNewCall(SootClass newClass, InvokeExpr invokeExpr, PatchingChain<Unit> units, Unit currentInsn, Body body){
+
+		System.out.println("This is the newclass getType: "+  newClass.getType());
+		Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
+		body.getLocals().add(invokeobj);
+		//TODO fix this for the methodrefs in the added methods, those should just use "this" not new local
+		createInitializer(newClass);
+		units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType())), currentInsn);
+		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())) , currentInsn);
+		SootMethodRef newClassMethod = newClass.getMethod(invokeExpr.getMethodRef().getSubSignature()).makeRef();
+		System.out.println("replacing a method call in this statement: "+ (Stmt)currentInsn);
+		System.out.println(invokeExpr.getMethodRef() + " ---> " + newClassMethod);
+		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, newClassMethod, invokeExpr.getArgs())) , currentInsn);
+		units.remove(currentInsn);
+	}
+
+	
 	/*
 	 * constructs a check on the runtime
 	 * type of the object that a method is 
@@ -196,7 +212,7 @@ public class PatchTransformer{
      * else if:
      *    //possibly more checks
      * else:
-	 *    a.someMethod() // this may not be here if a no longer holds someMethod
+	 *    (newClassofa).someMethod() // this may not be here if a no longer holds someMethod
 	 *
 	 * ```
 	 *
@@ -218,6 +234,7 @@ public class PatchTransformer{
 		units.addLast(newBlock);
 		units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())));
 		System.out.println("This is the method ref: "+ invokeExpr.getMethodRef());
+		System.out.println("This is the method ref declaring class: "+ invokeExpr.getMethodRef().getDeclaringClass());
 		units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())));
 		//then jump back to insn after u
 		units.addLast(Jimple.v().newGotoStmt(insnAfterInvokeInsn));

@@ -95,7 +95,7 @@ public class SemanticDiffer{
 			protected void internalTransform(String phaseName, Map options) {
 				//not super great option handling... gets the soot cp and gets the dir we know contains the og defs of classes
 				System.out.println("In phase 1: these are our access to options: "+ options1.get(1));
-				String originalDir = options1.get(1).split("\\:")[2];
+				String originalDir = options1.get(1).split("\\:")[3];
 				System.out.println("This is the dir to use: "+ originalDir);
 				ArrayList<SootClass> allOG = resolveClasses(originalDir);
 				Scene.v().getApplicationClasses().clear();
@@ -105,6 +105,9 @@ public class SemanticDiffer{
 				}
 				System.err.println("Finished rename phase.");
 				System.err.println("----------------------------------------------");
+				System.err.println("This is the soot class path atm: "+ Scene.v().getSootClassPath());
+				System.err.println("These are all of the classes right now: ");
+				//System.err.println(Scene.v().getClasses());
 			}
 		};
 	}
@@ -164,7 +167,7 @@ public class SemanticDiffer{
 					newClassMap.put(redef, newClass);
 					newClassMapReversed.put(newClass, redef);
 				}
-				for(SootClass og : allOriginals){
+				for(SootClass og : originalToRedefinitionClassMap.keySet()){
 					diff(og, originalToRedefinitionClassMap.get(og));
 				}
 				//now? fix all of the method references everywhere, in classes we are outputting
