@@ -39,6 +39,7 @@ public class SemanticDiffer{
 
 	private static CommandLine options;
 	private static String renameResultDir = ".";
+	private static String originalRenameSuffix = "Original";
 	private static HashMap<SootClass, SootClass> newClassMap = new HashMap<SootClass, SootClass>();
 	private static HashMap<SootClass, SootClass> newClassMapReversed = new HashMap<SootClass, SootClass>();
 	private static PatchTransformer patchTransformer;
@@ -100,13 +101,13 @@ public class SemanticDiffer{
 				ArrayList<SootClass> allOG = resolveClasses(originalDir);
 				Scene.v().getApplicationClasses().clear();
 				for(SootClass original : allOG){
-					original.rename(original.getName()+"Original");
+					original.rename(original.getName()+originalRenameSuffix);
 					original.setApplicationClass();
 				}
 				System.err.println("Finished rename phase.");
 				System.err.println("----------------------------------------------");
 				System.err.println("This is the soot class path atm: "+ Scene.v().getSootClassPath());
-				System.err.println("These are all of the classes right now: ");
+				//System.err.println("These are all of the classes right now: ");
 				//System.err.println(Scene.v().getClasses());
 			}
 		};
@@ -406,7 +407,7 @@ public class SemanticDiffer{
 			System.err.println("\tInheritance Diff!");
 			System.err.println("\tOriginal class has superclass: " + original.getSuperclassUnsafe() + " and redefinition has superclass: " + redefinition.getSuperclassUnsafe());
 
-		} else if(!redefinition.getSuperclass().getName().equals(original.getSuperclass().getName())) {
+		} else if(!(redefinition.getSuperclass().getName().equals(original.getSuperclass().getName())) && !(redefinition.getSuperclass().getName()+originalRenameSuffix).equals(original.getSuperclass().getName())) {
 			System.err.println("\tInheritance Diff!");
 			System.err.println("\tOriginal class has superclass: " + original.getSuperclassUnsafe() + " and redefinition has superclass: " + redefinition.getSuperclassUnsafe());
 
