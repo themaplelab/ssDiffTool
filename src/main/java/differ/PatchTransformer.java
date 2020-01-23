@@ -117,10 +117,13 @@ public class PatchTransformer{
 				Iterator targets = new Targets(explicitInvokesFilter.wrap(cg.edgesOutOf(s)));
 				System.out.println(".....................................");
 				if(targets.hasNext()){
-					SootMethod target = (SootMethod) targets.next();
-					System.out.println(target);
+					Iterator newTargets = new Targets(explicitInvokesFilter.wrap(cg.edgesOutOf(s)));
+					ArrayList<SootMethod> sortedTargets = sortTargets(newTargets);
+
+					
 					//relying solely on targets in the cg, since method refs could have child classes that rely on parent defs
-					if(newMethods.contains(target) && !targets.hasNext()){
+					if(sortedTargets.size() == 1 && newMethods.contains(sortedTargets.get(0))){
+						SootMethod target = sortedTargets.get(0);
 						System.out.println("replacing a method call in this statement: "+ s);
 						System.out.println(invokeExpr.getMethodRef() + " ---> " + target.makeRef());
 						//condition where the cg has only one explicit target for this call
@@ -136,28 +139,21 @@ public class PatchTransformer{
 							constructNewCall(newClass, invokeExpr, units, u, body);
 						}
 					} else {
-						if(targets.hasNext()){
-							System.out.println("There are potentially multiple targets in this stmt: " + s);
-							System.out.println("................................");
-							//todo refactor maybe
+						//more than one target
+						boolean relevantCalls = false;
+						for(SootMethod target : sortedTargets){
 							if(newMethods.contains(target)){
-								//this target was one that we moved from a redefinition into a newClass                     
 								System.out.println("This target is one we stole: "+ target);
-								//TODOBUILDGUARD
-								//if ref.getClass == method.getDeclaringClass:
-								//    method call
 								constructGuard(target, body , units, insnAfterInvokeInsn, u);
+								relevantCalls = true;
 							}
-							while(targets.hasNext()){
-								target = (SootMethod) targets.next();
-								 if(newMethods.contains(target)){
-									 System.out.println("This target is one we stole: "+ target);
-									 constructGuard(target, body , units, insnAfterInvokeInsn, u);
-								 }
-								 else {
-									System.out.println(target);
-								 }
+							else {
+                                    System.out.println(target);
 							}
+						}
+
+						//if any relevant calls are made then build an else
+						if(relevantCalls){
 							SootClass newClass = oldMethodToNew.get(invokeExpr.getMethodRef()).getDeclaringClass();
 							//ArrayList<SootClass> parents = 
 							constructNewCall(newClass, invokeExpr, units, u, body);
@@ -165,9 +161,10 @@ public class PatchTransformer{
 							//if(oldToNewMethod.get(invokeExpr.getMethodRef()) != null){
 							//	Jimple.v().newInstanceOfExpr(invokeExpr).getBase(), invokeExpr.getMethod().getDeclaringClass());
 							//}
-							System.out.println("................................");
 						}
+						System.out.println("................................");
 					}
+			
 					
 				}else{
 					System.out.println("Did not do anything with this statment: " + s + " because there were no targets at all.");
@@ -175,6 +172,33 @@ public class PatchTransformer{
 			}
 		System.out.println("-------------------------------");
 		}
+	}
+
+	//this is a dumb way to sort things, but since the targets are implemented as iterator I think it needs to be this way
+	//currently ONLY considers one lineage of hierarchy... not realistic if we begin to consider reflection later
+	private ArrayList<SootMethod> sortTargets(Iterator newTargets){
+		//map of parent class to method in child
+		HashMap<SootClass, SootMethod> unsorted =  new HashMap<SootClass, SootMethod>();
+		//targets sorted in order of children to parents
+		ArrayList<SootMethod> sortedHierarchy = new ArrayList<SootMethod>();
+		SootClass object = Scene.v().getSootClass("java.lang.Object");
+		
+		while(newTargets.hasNext()){
+			SootMethod target = (SootMethod) newTargets.next();
+			System.out.println("This is a target out of the iterator: "+ target);
+			if(target.getDeclaringClass() != object){
+				unsorted.put(target.getDeclaringClass().getSuperclass(), target);
+			} else {
+				unsorted.put(target.getDeclaringClass(), target);
+			}
+		}
+		sortedHierarchy.add(0, unsorted.get(object));
+		for(int i = 1; i < unsorted.keySet().size(); i++){
+			sortedHierarchy.add(0, unsorted.get(newToRedefClassMap.get(sortedHierarchy.get(0).getDeclaringClass())));
+		}
+		System.out.println("this is the unsorted list: "+ unsorted);
+		System.out.println("this is the sorted hierarchy"+ sortedHierarchy);
+		return sortedHierarchy;
 	}
 
 	private void constructNewCall(SootClass newClass, InvokeExpr invokeExpr, PatchingChain<Unit> units, Unit currentInsn, Body body){

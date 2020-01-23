@@ -85,7 +85,7 @@ public class SemanticDiffer{
 		}
 		PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTransform", createDiffTransformer()));
 		options2.set(1, options.getOptionValue("redefcp")+":.:/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/rt.jar:/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/jce.jar");
-		options2.set(options2.size()-3, "TestForVirt");
+		options2.set(options2.size()-3, "TestForVirt3point5");
 		System.out.println("Second soot has these options: " + options2);
 		
         soot.Main.main(options2.toArray(new String[0]));
@@ -101,14 +101,14 @@ public class SemanticDiffer{
 				ArrayList<SootClass> allOG = resolveClasses(originalDir);
 				Scene.v().getApplicationClasses().clear();
 				for(SootClass original : allOG){
-					original.rename(original.getName()+originalRenameSuffix);
+					original.rename((original.getName()+originalRenameSuffix));
 					original.setApplicationClass();
 				}
 				System.err.println("Finished rename phase.");
 				System.err.println("----------------------------------------------");
 				System.err.println("This is the soot class path atm: "+ Scene.v().getSootClassPath());
-				//System.err.println("These are all of the classes right now: ");
-				//System.err.println(Scene.v().getClasses());
+				System.err.println("These are all of the classes right now: ");
+				System.err.println(Scene.v().getClasses());
 			}
 		};
 	}
