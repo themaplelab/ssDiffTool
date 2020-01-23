@@ -85,7 +85,7 @@ public class SemanticDiffer{
 		}
 		PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTransform", createDiffTransformer()));
 		options2.set(1, options.getOptionValue("redefcp")+":.:/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/rt.jar:/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/jce.jar");
-		options2.set(options2.size()-3, "TestForVirt3point5");
+		options2.set(options2.size()-3, "TestForVirt");
 		System.out.println("Second soot has these options: " + options2);
 		
         soot.Main.main(options2.toArray(new String[0]));
@@ -102,6 +102,7 @@ public class SemanticDiffer{
 				Scene.v().getApplicationClasses().clear();
 				for(SootClass original : allOG){
 					original.rename((original.getName()+originalRenameSuffix));
+					Scene.v().getOrAddRefType(original.getType());
 					original.setApplicationClass();
 				}
 				System.err.println("Finished rename phase.");
