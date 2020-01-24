@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Collection;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 
 import soot.jimple.toolkits.callgraph.CallGraph;
 import soot.jimple.toolkits.callgraph.ExplicitEdgesPred;
@@ -177,28 +178,53 @@ public class PatchTransformer{
 	//this is a dumb way to sort things, but since the targets are implemented as iterator I think it needs to be this way
 	//currently ONLY considers one lineage of hierarchy... not realistic if we begin to consider reflection later
 	private ArrayList<SootMethod> sortTargets(Iterator newTargets){
-		//map of parent class to method in child
-		HashMap<SootClass, SootMethod> unsorted =  new HashMap<SootClass, SootMethod>();
+		//map of parents to possibly multiple children
+		HashMap<SootClass, LinkedHashSet<SootClass>> unsorted =  new HashMap<SootClass, LinkedHashSet<SootClass>>();
+		HashMap<SootClass, SootMethod> unsortedDeclToMethods = new HashMap<SootClass, SootMethod>();
 		//targets sorted in order of children to parents
-		ArrayList<SootMethod> sortedHierarchy = new ArrayList<SootMethod>();
+		ArrayList<SootClass> sortedHierarchy = new ArrayList<SootClass>();
+		ArrayList<SootMethod> sortedHierarchyMethods = new ArrayList<SootMethod>();
 		SootClass object = Scene.v().getSootClass("java.lang.Object");
 		
 		while(newTargets.hasNext()){
 			SootMethod target = (SootMethod) newTargets.next();
 			System.out.println("This is a target out of the iterator: "+ target);
-			if(target.getDeclaringClass() != object){
-				unsorted.put(target.getDeclaringClass().getSuperclass(), target);
-			} else {
-				unsorted.put(target.getDeclaringClass(), target);
+			if(target.getDeclaringClass()!= object){
+				if(!unsorted.containsKey(target.getDeclaringClass().getSuperclass())){
+					unsorted.put(target.getDeclaringClass().getSuperclass(), new LinkedHashSet<SootClass>());
+				}
+				SootClass toAdd = target.getDeclaringClass();
+				if(newToRedefClassMap.get(toAdd)!= null){
+					toAdd = newToRedefClassMap.get(toAdd);
+				}
+				unsorted.get(target.getDeclaringClass().getSuperclass()).add(toAdd);
+				unsortedDeclToMethods.put(toAdd, target);
 			}
 		}
-		sortedHierarchy.add(0, unsorted.get(object));
-		for(int i = 1; i < unsorted.keySet().size(); i++){
-			sortedHierarchy.add(0, unsorted.get(newToRedefClassMap.get(sortedHierarchy.get(0).getDeclaringClass())));
+
+		//start with known top of hierarchy
+		SootClass index = object;
+		traverseChildren(sortedHierarchy, unsorted, index);
+
+		for(SootClass sootclass : sortedHierarchy){
+			sortedHierarchyMethods.add(unsortedDeclToMethods.get(sootclass));
 		}
+		
 		System.out.println("this is the unsorted list: "+ unsorted);
 		System.out.println("this is the sorted hierarchy"+ sortedHierarchy);
-		return sortedHierarchy;
+		System.out.println("this is the sorted hierarchy of methods"+ sortedHierarchyMethods);
+		return sortedHierarchyMethods;
+	}
+
+	private void traverseChildren(ArrayList<SootClass> sortedHierarchy, HashMap<SootClass, LinkedHashSet<SootClass>> unsorted, SootClass index){
+		if(unsorted.get(index) != null){
+			for(SootClass child : unsorted.get(index)){
+                sortedHierarchy.add(0, child);
+            }
+			for(SootClass child : unsorted.get(index)){
+				traverseChildren(sortedHierarchy, unsorted, child);
+			}
+		}
 	}
 
 	private void constructNewCall(SootClass newClass, InvokeExpr invokeExpr, PatchingChain<Unit> units, Unit currentInsn, Body body){
@@ -225,18 +251,19 @@ public class PatchTransformer{
 	 * that we stole from, then execution 
 	 * goes to a new block in program
 	 * that calls the new method in its new class
+	 * The checks are instanceof AND they are
+	 * ordered from CHILD -> PARENT
 	 *
 	 * original program:
 	 * ` a.someMethod()`
 	 *
 	 * fixed program:
 	 * ```
-	 * if(a.getClass == robbedClass.class):
-     *    robberClass.someMethod()
+	 * hostClass = mapRedefToNew[targetClass] || targetClass
+	 * if(baseVar instanceof hostClass):
+     *    hostClass.someMethod()
      * else if:
      *    //possibly more checks
-     * else:
-	 *    (newClassofa).someMethod() // this may not be here if a no longer holds someMethod
 	 *
 	 * ```
 	 *
