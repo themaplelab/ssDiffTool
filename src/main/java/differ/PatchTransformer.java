@@ -14,7 +14,8 @@ import soot.jimple.toolkits.callgraph.ExplicitEdgesPred;
 import soot.jimple.toolkits.callgraph.Filter;
 import soot.jimple.toolkits.callgraph.Targets;
 
-import soot.jimple.ClassConstant;
+import soot.jimple.ClassConstant; //todo check if used
+import soot.jimple.IntConstant;
 import soot.Modifier;
 import soot.Scene;
 import soot.SootClass;
@@ -30,6 +31,8 @@ import soot.jimple.InstanceInvokeExpr;
 import soot.jimple.Stmt;
 import soot.jimple.DefinitionStmt;
 import soot.Type;
+import soot.BooleanType;
+import soot.IntType;
 import soot.VoidType;
 import soot.Local;
 import soot.ValueBox;
@@ -120,53 +123,45 @@ public class PatchTransformer{
 				if(targets.hasNext()){
 					Iterator newTargets = new Targets(explicitInvokesFilter.wrap(cg.edgesOutOf(s)));
 					ArrayList<SootMethod> sortedTargets = sortTargets(newTargets);
+					boolean checkForMapped = checkForMapped(sortedTargets);
 
-					
-					//relying solely on targets in the cg, since method refs could have child classes that rely on parent defs
-					if(sortedTargets.size() == 1 && newMethods.contains(sortedTargets.get(0))){
-						SootMethod target = sortedTargets.get(0);
-						System.out.println("replacing a method call in this statement: "+ s);
-						System.out.println(invokeExpr.getMethodRef() + " ---> " + target.makeRef());
-						//condition where the cg has only one explicit target for this call
-						if(invokeExpr instanceof StaticInvokeExpr){
-							//if its a static invoke we can just replace ref
-							invokeExpr.setMethodRef(target.makeRef());
-						} else {
-							//otherwise we gotta create a var of newClass type to invoke this on
-							//TODO make this safe... need to singleton the locals ugh
+					if(checkForMapped){
+						//relying solely on targets in the cg, since method refs could have child classes that rely on parent defs
+						if(sortedTargets.size() == 1){
+							SootMethod target = sortedTargets.get(0);
+							System.out.println("replacing a method call in this statement: "+ s);
+							System.out.println(invokeExpr.getMethodRef() + " ---> " + target.makeRef());
+							//condition where the cg has only one explicit target for this call
+							if(invokeExpr instanceof StaticInvokeExpr){
+								//if its a static invoke we can just replace ref
+								invokeExpr.setMethodRef(target.makeRef());
+							} else {
+								//otherwise we gotta create a var of newClass type to invoke this on
+								//TODO make this safe... need to singleton the locals ugh
 							System.out.println("This is the redeftonewMap" + redefToNewClassMap);
 							System.out.println("This is the target decl decl class: "+  target.getDeclaringClass().getName());
 							SootClass newClass = target.getDeclaringClass();
 							constructNewCall(newClass, invokeExpr, units, u, body);
-						}
-					} else {
+							}
+						} else {
 						//more than one target
-						boolean relevantCalls = false;
-						for(SootMethod target : sortedTargets){
-							if(newMethods.contains(target)){
-								System.out.println("This target is one we stole: "+ target);
+							boolean relevantCalls = false;
+							for(SootMethod target : sortedTargets){
+								System.out.println("This target is one we are fixing: "+ target);
 								constructGuard(target, body , units, insnAfterInvokeInsn, u);
 								relevantCalls = true;
 							}
-							else {
-                                    System.out.println(target);
-							}
-						}
-
-						//if any relevant calls are made then build an else
-						if(relevantCalls){
-							SootClass newClass = oldMethodToNew.get(invokeExpr.getMethodRef()).getDeclaringClass();
-							//ArrayList<SootClass> parents = 
-							constructNewCall(newClass, invokeExpr, units, u, body);
-							//now possibly replace the static method ref here as well
-							//if(oldToNewMethod.get(invokeExpr.getMethodRef()) != null){
-							//	Jimple.v().newInstanceOfExpr(invokeExpr).getBase(), invokeExpr.getMethod().getDeclaringClass());
+							units.remove(u);
+								//now possibly replace the static method ref here as well
+								//if(oldToNewMethod.get(invokeExpr.getMethodRef()) != null){
+								//	Jimple.v().newInstanceOfExpr(invokeExpr).getBase(), invokeExpr.getMethod().getDeclaringClass());
 							//}
+							System.out.println("................................");
 						}
-						System.out.println("................................");
-					}
 			
-					
+					}else{
+                    System.out.println("Did not do anything with this statment: " + s + " because there were no relevant targets.");
+                }
 				}else{
 					System.out.println("Did not do anything with this statment: " + s + " because there were no targets at all.");
 				}
@@ -175,6 +170,16 @@ public class PatchTransformer{
 		}
 	}
 
+	//determines if any of the targets correspond to stolen methods, only care about changing calls that may have stolen targets
+	private boolean checkForMapped(ArrayList<SootMethod> sorted){
+		for(SootMethod target : sorted){
+			if(newMethods.contains(target)){
+				return true;
+			}
+		}
+		return false;
+	}
+	
 	//this is a dumb way to sort things, but since the targets are implemented as iterator I think it needs to be this way
 	//currently ONLY considers one lineage of hierarchy... not realistic if we begin to consider reflection later
 	private ArrayList<SootMethod> sortTargets(Iterator newTargets){
@@ -270,26 +275,56 @@ public class PatchTransformer{
 	 */
 	private void constructGuard(SootMethod target, Body body, PatchingChain<Unit> units, Unit insnAfterInvokeInsn, Unit currentInsn){
 		InvokeExpr invokeExpr = ((Stmt)currentInsn).getInvokeExpr();
-		System.out.println("This target is one we stole: "+ target);
 		//already performed the steal by now, so the current decl class is correct          
 		SootClass newClass = target.getDeclaringClass();
-
+		//may or may not actually be a newclass, if it is, need to instanitate and also know this for the instanceof check
+		SootClass originalClass = newToRedefClassMap.get(newClass);
+		Local invokeobj;
+		Unit nextUnit;
+		Unit newBlock;
+		
 		//create the new block that contains the call to the new method
 		System.out.println("This is the newclass getType: "+  newClass.getType());
-		Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
-		body.getLocals().add(invokeobj);
-		//TODO fix this for the methodrefs in the added methods, those should just use "this" not new local
 		
+		//maybe TODO: fix this for the methodrefs in the added methods, those should just use "this" not new local
+
 		createInitializer(newClass);
-		Unit newBlock = Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType()));
-		units.addLast(newBlock);
-		units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())));
+            invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
+            body.getLocals().add(invokeobj);
+            newBlock = Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType()));
+            units.addLast(newBlock);
+            units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())));
+            nextUnit = Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs()));
+			/*
+		if(originalClass != null){
+			createInitializer(newClass);
+			invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
+			body.getLocals().add(invokeobj);
+			newBlock = Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType()));
+			units.addLast(newBlock);
+			units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())));
+			nextUnit = Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs()));
+		}else{
+			//just use preexiting call, trust where it will resolve to , is this questionable?
+			Local trueInvokeObj = Jimple.v().newLocal("trueInvokeObj", target.getDeclaringClass().getType());
+			body.getLocals().add(trueInvokeObj);
+			invokeobj = (Local)((InstanceInvokeExpr)invokeExpr).getBase();
+			System.out.println("Constructing a cast from: " + invokeobj.getType() + " to this " + trueInvokeObj.getType());
+			units.addLast(Jimple.v().newAssignStmt(trueInvokeObj, invokeobj));
+			//units.addLast(Jimple.v().newAssignStmt(trueInvokeObj, Jimple.v().newCastExpr(invokeobj, trueInvokeObj.getType())));
+			newBlock = Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(trueInvokeObj, target.makeRef(), invokeExpr.getArgs()));
+			nextUnit = newBlock;
+			
+			}*/
+		
 		System.out.println("This is the method ref: "+ invokeExpr.getMethodRef());
 		System.out.println("This is the method ref declaring class: "+ invokeExpr.getMethodRef().getDeclaringClass());
-		units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())));
+		units.addLast(nextUnit);
 		//then jump back to insn after u
 		units.addLast(Jimple.v().newGotoStmt(insnAfterInvokeInsn));
 
+
+		
 		//construct the check for the runtime type
 		SootMethod getClass = Scene.v().getMethod("<java.lang.Object: java.lang.Class getClass()>");
 		
@@ -298,11 +333,28 @@ public class PatchTransformer{
 		Local clz = Jimple.v().newLocal("clz", Scene.v().getType("java.lang.Class"));
 		body.getLocals().add(clz);
 		System.out.println("These are now the locals: "+ body.getLocals());
+
+		Local base = (Local)((InstanceInvokeExpr)invokeExpr).getBase();
+		Local boolInstanceOf = Jimple.v().newLocal("boolInstanceOf", BooleanType.v());
+		body.getLocals().add(boolInstanceOf);
+		Local boolTautology = Jimple.v().newLocal("boolTautology", BooleanType.v());
+		body.getLocals().add(boolTautology);
 		
-		units.insertBefore(Jimple.v().newAssignStmt(clz, Jimple.v().newVirtualInvokeExpr((Local)((InstanceInvokeExpr)invokeExpr).getBase(), getClass.makeRef())), currentInsn);
+		//units.insertBefore(Jimple.v().newAssignStmt(clz, Jimple.v().newVirtualInvokeExpr((Local)((InstanceInvokeExpr)invokeExpr).getBase(), getClass.makeRef())), currentInsn);
+
+		//build a tautology
+		IntConstant one=IntConstant.v(1);
+		Local condition=Jimple.v().newLocal("i", IntType.v());
+		body.getLocals().add(condition);
+		units.insertBefore(Jimple.v().newAssignStmt(condition, IntConstant.v(1)), currentInsn);
+		units.insertBefore(Jimple.v().newAssignStmt(boolTautology, Jimple.v().newEqExpr(condition,one)), currentInsn);
+
 		
 		System.out.println("This is the (newToRedefClassMap: "+ newToRedefClassMap);
-		units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(clz, ClassConstant.fromType(newToRedefClassMap.get(target.getDeclaringClass()).getType())), newBlock), currentInsn);
+		units.insertBefore(Jimple.v().newAssignStmt(boolInstanceOf, Jimple.v().newInstanceOfExpr(base , target.getDeclaringClass().getType())) , currentInsn);
+		//units.insertBefore(Jimple.v().newIfStmt(bool, newBlock), currentInsn); 
+		//units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(boolInstanceOf, boolTautology), newBlock), currentInsn);
+		units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(boolInstanceOf, IntConstant.v(0)), );
 	}
 	
 	public void transformFields(SootClass redefinition, List<SootField> addedFields){

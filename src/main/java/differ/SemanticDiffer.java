@@ -85,7 +85,7 @@ public class SemanticDiffer{
 		}
 		PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTransform", createDiffTransformer()));
 		options2.set(1, options.getOptionValue("redefcp")+":.:/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/rt.jar:/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/jce.jar");
-		options2.set(options2.size()-3, "TestForVirt");
+		options2.set(options2.size()-3, "TestForVirt4");
 		System.out.println("Second soot has these options: " + options2);
 		
         soot.Main.main(options2.toArray(new String[0]));
@@ -96,7 +96,7 @@ public class SemanticDiffer{
 			protected void internalTransform(String phaseName, Map options) {
 				//not super great option handling... gets the soot cp and gets the dir we know contains the og defs of classes
 				System.out.println("In phase 1: these are our access to options: "+ options1.get(1));
-				String originalDir = options1.get(1).split("\\:")[3];
+				String originalDir = options1.get(1).split("\\:")[2];
 				System.out.println("This is the dir to use: "+ originalDir);
 				ArrayList<SootClass> allOG = resolveClasses(originalDir);
 				Scene.v().getApplicationClasses().clear();
