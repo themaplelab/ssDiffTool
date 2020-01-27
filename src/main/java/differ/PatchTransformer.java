@@ -16,6 +16,7 @@ import soot.jimple.toolkits.callgraph.Targets;
 
 import soot.jimple.ClassConstant; //todo check if used
 import soot.jimple.IntConstant;
+import soot.jimple.StringConstant;
 import soot.Modifier;
 import soot.Scene;
 import soot.SootClass;
@@ -30,6 +31,7 @@ import soot.jimple.InvokeExpr;
 import soot.jimple.InstanceInvokeExpr;
 import soot.jimple.Stmt;
 import soot.jimple.DefinitionStmt;
+import soot.jimple.NopStmt;
 import soot.Type;
 import soot.BooleanType;
 import soot.IntType;
@@ -37,6 +39,7 @@ import soot.VoidType;
 import soot.Local;
 import soot.ValueBox;
 import soot.Value;
+import soot.RefType;
 import soot.util.Chain;
 import soot.jimple.Jimple;
 import soot.jimple.JimpleBody;
@@ -282,79 +285,69 @@ public class PatchTransformer{
 		Local invokeobj;
 		Unit nextUnit;
 		Unit newBlock;
+		Type checkType;
+
+		//create the check
+		Local base = (Local)((InstanceInvokeExpr)invokeExpr).getBase();
+        Local boolInstanceOf = Jimple.v().newLocal("boolInstanceOf", BooleanType.v());
+        body.getLocals().add(boolInstanceOf);
+
+		NopStmt nop = Jimple.v().newNopStmt();
+		checkType = newClass.getType();
+		if(originalClass != null){
+			checkType =originalClass.getType();
+		}
+		units.insertBefore(Jimple.v().newAssignStmt(boolInstanceOf, Jimple.v().newInstanceOfExpr(base , checkType)) , currentInsn);
+		units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(boolInstanceOf, IntConstant.v(0)), nop), currentInsn);
+
+
+
 		
 		//create the new block that contains the call to the new method
 		System.out.println("This is the newclass getType: "+  newClass.getType());
 		
 		//maybe TODO: fix this for the methodrefs in the added methods, those should just use "this" not new local
 
+		//TEMP printcall so we can understand this bla
+		Local tmpRef = Jimple.v().newLocal("tmpRef", RefType.v("java.io.PrintStream"));
+		body.getLocals().add(tmpRef);
+		units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef(Scene.v().getField("<java.lang.System: java.io.PrintStream out>").makeRef())), currentInsn);
+		SootMethod toCall = Scene.v().getMethod("<java.io.PrintStream: void println(java.lang.String)>");
+		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(tmpRef, toCall.makeRef(), StringConstant.v("Detected an instanceof condition!"))), currentInsn);
+		
+		
 		createInitializer(newClass);
-            invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
-            body.getLocals().add(invokeobj);
-            newBlock = Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType()));
-            units.addLast(newBlock);
-            units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())));
-            nextUnit = Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs()));
-			/*
-		if(originalClass != null){
-			createInitializer(newClass);
-			invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
-			body.getLocals().add(invokeobj);
-			newBlock = Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType()));
-			units.addLast(newBlock);
-			units.addLast(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())));
-			nextUnit = Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs()));
-		}else{
-			//just use preexiting call, trust where it will resolve to , is this questionable?
-			Local trueInvokeObj = Jimple.v().newLocal("trueInvokeObj", target.getDeclaringClass().getType());
-			body.getLocals().add(trueInvokeObj);
-			invokeobj = (Local)((InstanceInvokeExpr)invokeExpr).getBase();
-			System.out.println("Constructing a cast from: " + invokeobj.getType() + " to this " + trueInvokeObj.getType());
-			units.addLast(Jimple.v().newAssignStmt(trueInvokeObj, invokeobj));
-			//units.addLast(Jimple.v().newAssignStmt(trueInvokeObj, Jimple.v().newCastExpr(invokeobj, trueInvokeObj.getType())));
-			newBlock = Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(trueInvokeObj, target.makeRef(), invokeExpr.getArgs()));
-			nextUnit = newBlock;
-			
-			}*/
+		invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
+		body.getLocals().add(invokeobj);
+
+		//build the new call setup
+		units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType())), currentInsn);
+		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())), currentInsn);
+		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
+		units.insertBefore(Jimple.v().newGotoStmt(insnAfterInvokeInsn), currentInsn);
 		
 		System.out.println("This is the method ref: "+ invokeExpr.getMethodRef());
 		System.out.println("This is the method ref declaring class: "+ invokeExpr.getMethodRef().getDeclaringClass());
-		units.addLast(nextUnit);
-		//then jump back to insn after u
-		units.addLast(Jimple.v().newGotoStmt(insnAfterInvokeInsn));
-
+		
 
 		
-		//construct the check for the runtime type
-		SootMethod getClass = Scene.v().getMethod("<java.lang.Object: java.lang.Class getClass()>");
-		
-		//construct locals to set as the types we want to compare                           
-		//the benefit/drawback of 3 address, do we actually need???                         
-		Local clz = Jimple.v().newLocal("clz", Scene.v().getType("java.lang.Class"));
-		body.getLocals().add(clz);
-		System.out.println("These are now the locals: "+ body.getLocals());
-
-		Local base = (Local)((InstanceInvokeExpr)invokeExpr).getBase();
-		Local boolInstanceOf = Jimple.v().newLocal("boolInstanceOf", BooleanType.v());
-		body.getLocals().add(boolInstanceOf);
 		Local boolTautology = Jimple.v().newLocal("boolTautology", BooleanType.v());
 		body.getLocals().add(boolTautology);
 		
-		//units.insertBefore(Jimple.v().newAssignStmt(clz, Jimple.v().newVirtualInvokeExpr((Local)((InstanceInvokeExpr)invokeExpr).getBase(), getClass.makeRef())), currentInsn);
-
+		
 		//build a tautology
 		IntConstant one=IntConstant.v(1);
 		Local condition=Jimple.v().newLocal("i", IntType.v());
 		body.getLocals().add(condition);
-		units.insertBefore(Jimple.v().newAssignStmt(condition, IntConstant.v(1)), currentInsn);
-		units.insertBefore(Jimple.v().newAssignStmt(boolTautology, Jimple.v().newEqExpr(condition,one)), currentInsn);
-
+		//units.insertBefore(Jimple.v().newAssignStmt(condition, IntConstant.v(1)), currentInsn);
+		//units.insertBefore(Jimple.v().newAssignStmt(boolTautology, Jimple.v().newEqExpr(condition,one)), currentInsn);
+		units.insertBefore(nop, currentInsn);
 		
 		System.out.println("This is the (newToRedefClassMap: "+ newToRedefClassMap);
-		units.insertBefore(Jimple.v().newAssignStmt(boolInstanceOf, Jimple.v().newInstanceOfExpr(base , target.getDeclaringClass().getType())) , currentInsn);
+		//units.insertBefore(Jimple.v().newAssignStmt(boolInstanceOf, Jimple.v().newInstanceOfExpr(base , target.getDeclaringClass().getType())) , currentInsn);
 		//units.insertBefore(Jimple.v().newIfStmt(bool, newBlock), currentInsn); 
 		//units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(boolInstanceOf, boolTautology), newBlock), currentInsn);
-		units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(boolInstanceOf, IntConstant.v(0)), );
+		//units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(boolInstanceOf, IntConstant.v(0)), );
 	}
 	
 	public void transformFields(SootClass redefinition, List<SootField> addedFields){
