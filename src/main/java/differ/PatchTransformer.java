@@ -315,7 +315,18 @@ public class PatchTransformer{
 		SootMethod toCall = Scene.v().getMethod("<java.io.PrintStream: void println(java.lang.String)>");
 		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(tmpRef, toCall.makeRef(), StringConstant.v("Detected an instanceof condition!"))), currentInsn);
 		
-		
+		if(originalClass == null){
+
+			//this is where we did not steal
+			invokeobj =  Jimple.v().newLocal("baseinvokeobj", newClass.getType());
+			body.getLocals().add(invokeobj);
+			units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newCastExpr(base, newClass.getType())), currentInsn);
+			units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
+			
+
+			
+
+		}else{
 		createInitializer(newClass);
 		invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
 		body.getLocals().add(invokeobj);
@@ -324,12 +335,16 @@ public class PatchTransformer{
 		units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType())), currentInsn);
 		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())), currentInsn);
 		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
+
+		}
+
+		
 		units.insertBefore(Jimple.v().newGotoStmt(insnAfterInvokeInsn), currentInsn);
 		
 		System.out.println("This is the method ref: "+ invokeExpr.getMethodRef());
 		System.out.println("This is the method ref declaring class: "+ invokeExpr.getMethodRef().getDeclaringClass());
 		
-
+		
 		
 		Local boolTautology = Jimple.v().newLocal("boolTautology", BooleanType.v());
 		body.getLocals().add(boolTautology);
