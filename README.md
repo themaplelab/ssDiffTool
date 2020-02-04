@@ -30,7 +30,7 @@ java -cp $cp differ.SemanticDiffer -cp cpplaceholder -w -firstDest renamedOrigin
      * $cp is the path to the SemanticDiffer package
 	 * cpplaceholder contains the following (in the listed order):
 	    * originaldir: the directory of the original version of the class
-		* .: current workign directory
+		* .: current working directory
 		* $latestssbuild: the path to the SemanticDiffer package
 		* rt.jar: a path to the jvm's rt
 		* jce.jar: a path to the jvms crypto library
@@ -48,4 +48,4 @@ java -cp $cp differ.SemanticDiffer -cp cpplaceholder -w -firstDest renamedOrigin
 ## How to test:
   * build the application first
   * go to test directory
-  * run `./test.sh`
+  * run `./test.sh <path to rt.jar:path to jce.jar>`
