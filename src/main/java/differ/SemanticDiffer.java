@@ -76,7 +76,7 @@ public class SemanticDiffer{
 		}
 
 		if(options.hasOption("runRename") && options.getOptionValue("runRename").equals("true")) {
-			PackManager.v().getPack("wjtp").add(new Transform("wjtp.renameTransform", createRenameTransformer(options1)));
+			PackManager.v().getPack("wjtp").add(new Transform("wjtp.renameTransform", createRenameTransformer(options1, options.getOptionValue("originalcp"))));
 			System.out.println("First soot has these options: " + options1);
 			soot.Main.main(options1.toArray(new String[0]));
 			//not sure if this is needed
@@ -84,19 +84,18 @@ public class SemanticDiffer{
 			G.reset();
 		}
 		PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTransform", createDiffTransformer()));
-		options2.set(1, options.getOptionValue("redefcp")+":.:/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/rt.jar:/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/jce.jar");
-		options2.set(options2.size()-3, "TestForVirt4");
+		options2.set(1, options.getOptionValue("redefcp")+ ":" +options1.get(1));
+		options2.set(options2.size()-3,  options.getOptionValue("mainClass"));
 		System.out.println("Second soot has these options: " + options2);
 		
         soot.Main.main(options2.toArray(new String[0]));
 	}
 
-	private static Transformer createRenameTransformer(List<String> options1){
+	private static Transformer createRenameTransformer(List<String> options1, String originalDir){
 		return new SceneTransformer() {
 			protected void internalTransform(String phaseName, Map options) {
 				//not super great option handling... gets the soot cp and gets the dir we know contains the og defs of classes
 				System.out.println("In phase 1: these are our access to options: "+ options1.get(1));
-				String originalDir = options1.get(1).split("\\:")[2];
 				System.out.println("This is the dir to use: "+ originalDir);
 				ArrayList<SootClass> allOG = resolveClasses(originalDir);
 				Scene.v().getApplicationClasses().clear();
