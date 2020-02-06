@@ -10,7 +10,7 @@ public class SemanticOptions extends Options {
 		Option redefinitionClass = Option.builder().longOpt("redefcp").hasArg().required().desc("Specify the classpath of the redefinition classes.").build();
 		addOption(redefinitionClass);
 
-		Option originalClass = Option.builder().longOpt("originalcp").hasArg().required().desc("Specify the classpath of the reoriginal classes.").build();
+		Option originalClass = Option.builder().longOpt("originalclasslist").hasArg().required().desc("Specify a file containing the list of original classes.").build();
         addOption(originalClass);
 
 		Option firstDest = Option.builder().longOpt("firstDest").hasArg().desc("Specify the first directory for the renamed class to go to.").build();
@@ -23,7 +23,7 @@ public class SemanticOptions extends Options {
 		Option runRename = Option.builder().longOpt("runRename").hasArg().desc("Specify whether the rename phase should be run. Default false.").build();
 		addOption(runRename);
 
-		Option mainClass = Option.builder().longOpt("mainClass").hasArg().required().desc("Specify the actual main class of the application, to be provided to Soot AFTER Soot startup has occurred.").build();
+		Option mainClass = Option.builder().longOpt("mainClass").hasArg().desc("Specify the actual main class of the application, to be provided to Soot AFTER Soot startup has occurred.").build();
         addOption(mainClass);
 		
 	}

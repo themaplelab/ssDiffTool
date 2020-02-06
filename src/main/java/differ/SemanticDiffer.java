@@ -11,6 +11,8 @@ import java.io.PrintWriter;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.File;
+import java.io.BufferedReader;
+import java.io.FileReader;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.ParseException;
@@ -76,7 +78,7 @@ public class SemanticDiffer{
 		}
 
 		if(options.hasOption("runRename") && options.getOptionValue("runRename").equals("true")) {
-			PackManager.v().getPack("wjtp").add(new Transform("wjtp.renameTransform", createRenameTransformer(options1, options.getOptionValue("originalcp"))));
+			PackManager.v().getPack("wjtp").add(new Transform("wjtp.renameTransform", createRenameTransformer(options1, options.getOptionValue("originalclasslist"))));
 			System.out.println("First soot has these options: " + options1);
 			soot.Main.main(options1.toArray(new String[0]));
 			//not sure if this is needed
@@ -91,13 +93,13 @@ public class SemanticDiffer{
         soot.Main.main(options2.toArray(new String[0]));
 	}
 
-	private static Transformer createRenameTransformer(List<String> options1, String originalDir){
+	private static Transformer createRenameTransformer(List<String> options1, String originalList){
 		return new SceneTransformer() {
 			protected void internalTransform(String phaseName, Map options) {
 				//not super great option handling... gets the soot cp and gets the dir we know contains the og defs of classes
 				System.out.println("In phase 1: these are our access to options: "+ options1.get(1));
-				System.out.println("This is the dir to use: "+ originalDir);
-				ArrayList<SootClass> allOG = resolveClasses(originalDir);
+				System.out.println("This is the classlist file to use: "+ originalList);
+				ArrayList<SootClass> allOG = gatherClassesFromFile(originalList);
 				Scene.v().getApplicationClasses().clear();
 				for(SootClass original : allOG){
 					original.rename((original.getName()+originalRenameSuffix));
@@ -124,7 +126,7 @@ public class SemanticDiffer{
 				System.err.println("Initial classes END ");
 
 				Scene.v().setSootClassPath(options.getOptionValue("redefcp"));
-				ArrayList<SootClass> allRedefs = resolveClasses(options.getOptionValue("redefcp"));
+				ArrayList<SootClass> allRedefs = gatherClassesFromDir(options.getOptionValue("redefcp"));
 				for(SootClass redef : allRedefs){
 					//this is so that the redef classes will also get output'd by soot
 					redef.setApplicationClass();
@@ -135,7 +137,7 @@ public class SemanticDiffer{
 
 				
 				Scene.v().setSootClassPath(renameResultDir);
-				ArrayList<SootClass> allOriginals = resolveClasses(renameResultDir);
+				ArrayList<SootClass> allOriginals = gatherClassesFromDir(renameResultDir);
 
 				sortClasses(allOriginals, allRedefs);
 				System.err.println("Classes map after the sort: "+ originalToRedefinitionClassMap);
@@ -428,8 +430,8 @@ public class SemanticDiffer{
 	}
 
 	//resolves all of the classes in some dir that defines the patch (== set of classes)
-	private static ArrayList<SootClass> resolveClasses(String strdir){
-		ArrayList<SootClass> allClasses = new ArrayList<SootClass>();
+	private static ArrayList<SootClass> gatherClassesFromDir(String strdir){
+		ArrayList<String> allNames = new ArrayList<String>();
 		try{
 			File dir = new File(strdir);
 			File[] directoryListing = dir.listFiles();
@@ -437,11 +439,9 @@ public class SemanticDiffer{
 				for (File file : directoryListing) {
 					if(file.toString().contains("class")){
 						//ugly parsing, its the only way tho?
-						String classname = file.toString().replaceFirst(strdir , "").replace(".class", "").replaceAll("\\/", "");
-						System.out.println("Resolving class: " + classname);
-						SootClass resolvedClass = Scene.v().forceResolve(classname, SootClass.BODIES);
-						allClasses.add(resolvedClass);
-					}
+						String classname = file.toString().replaceFirst(strdir , "").replace(".class", "").replaceAll("\\/", ".");
+						allNames.add(classname);
+						}
 				}
 			} else {
 				System.out.println("Directory supplied is not sufficient to read.");
@@ -449,7 +449,35 @@ public class SemanticDiffer{
 		} catch(Exception e){
 			System.out.println("Some issue accessing the classes to be renamed: "+ e.getMessage());
 		}
+		ArrayList<SootClass> allClasses = resolveClasses(allNames);
 		return allClasses;
+	}
+
+	//reads the classes that designate the patch, from a file. One class per line, fqn.
+	private static ArrayList<SootClass> gatherClassesFromFile(String configFile){
+		ArrayList<SootClass> allClasses = new ArrayList<SootClass>();
+		try{
+			BufferedReader in = new BufferedReader(new FileReader(configFile));
+			String str;
+			ArrayList<String> allNames = new ArrayList<String>();
+			while((str = in.readLine()) != null){
+			allNames.add(str.replace(".class", "").replaceAll("\\/", "."));
+			}
+			allClasses = resolveClasses(allNames);
+		}catch(Exception e){
+            System.out.println("Some issue accessing the classes to be renamed: "+ e.getMessage());
+        }
+		return allClasses;
+	}
+
+	private static ArrayList<SootClass> resolveClasses(ArrayList<String> allNames){
+		 ArrayList<SootClass> allClasses = new ArrayList<SootClass>();
+		 for(String classname : allNames){
+			 System.out.println("Resolving class: " + classname);
+			 SootClass resolvedClass = Scene.v().forceResolve(classname, SootClass.BODIES);
+			 allClasses.add(resolvedClass);
+		 }
+		 return allClasses;
 	}
 				
 }
