@@ -10,10 +10,11 @@ import org.apache.commons.cli.DefaultParser;
 
 public class RelaxedParser extends DefaultParser {
 
-	private static final List<String> leftoverArgs = new ArrayList<String>();
+	private static List<String> leftoverArgs = new ArrayList<String>();
 	
     @Override
     public CommandLine parse(Options options, String[] arguments) throws ParseException {
+		leftoverArgs = new ArrayList<String>(); //leftovers are on a per parse basis
         List<String> knownArguments = new ArrayList<>();
 		//this is only ok bc we know all of our options have an arg
 		for (int i = 0; i < arguments.length; i++) {
