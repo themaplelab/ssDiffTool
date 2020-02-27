@@ -1,5 +1,6 @@
 package differ;
 
+
 import java.util.Map;
 import java.util.HashMap;
 import java.util.List;
@@ -46,6 +47,8 @@ public class SemanticDiffer{
 	private static HashMap<SootClass, SootClass> newClassMapReversed = new HashMap<SootClass, SootClass>();
 	private static PatchTransformer patchTransformer;
 	private static HashMap<SootClass, SootClass> originalToRedefinitionClassMap = new HashMap<SootClass, SootClass>();
+	private static List<String> allEmittedClassesRedefs = new ArrayList<String>();
+	private static List<String> allEmittedClassesHostClasses = new ArrayList<String>();
 	
 	public static void main(String[] args) throws ParseException {
 
@@ -54,6 +57,8 @@ public class SemanticDiffer{
 		options = parser.parse(new SemanticOptions(), args);
 		List<String> options1 = new ArrayList<String>();
 		List<String> options2 = new ArrayList<String>();
+		List<String> options1final = new ArrayList<String>();
+		List<String> options2final = new ArrayList<String>();
 		
 		if(options.hasOption("altDest") && !options.hasOption("firstDest")) {
 			System.out.println("Using output dir for both soot runs: "+ options.getOptionValue("altDest"));
@@ -79,18 +84,37 @@ public class SemanticDiffer{
 
 		if(options.hasOption("runRename") && options.getOptionValue("runRename").equals("true")) {
 			PackManager.v().getPack("wjtp").add(new Transform("wjtp.renameTransform", createRenameTransformer(options1, options.getOptionValue("originalclasslist"))));
-			System.out.println("First soot has these options: " + options1);
-			soot.Main.main(options1.toArray(new String[0]));
+			for(int i =2; i < options1.size(); i++){
+				options1final.add(options1.get(i));
+			}
+
+			//Options.v().set_src_prec(Options.v().src_prec_cache);    
+			System.out.println("First soot has these options: " + options1final);
+			soot.Main.main(options1final.toArray(new String[0]));
 			//not sure if this is needed
 			PackManager.v().getPack("wjtp").remove("wjtp.renameTransform");
 			G.reset();
 		}
 		PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTransform", createDiffTransformer()));
-		options2.set(1, options.getOptionValue("redefcp")+ ":" +options1.get(1));
-		options2.set(options2.size()-3,  options.getOptionValue("mainClass"));
-		System.out.println("Second soot has these options: " + options2);
-		
-        soot.Main.main(options2.toArray(new String[0]));
+		//options2.set(1, options.getOptionValue("redefcp")+ ":" +options1.get(1));
+
+
+		//		for(int i =2; i < options2.size(); i++){
+		//	options2final.add(options2.get(i));
+		//}
+		options2final.add("-w");
+		options2final.add( options.getOptionValue("mainClass"));
+		//options2.set(options2.size()-3,  options.getOptionValue("mainClass"));
+		Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":" +options1.get(1));
+		Options.v().set_output_dir(options.getOptionValue("altDest"));
+		Options.v().set_src_prec(Options.v().src_prec_cache);
+		//Options.v().set_allow_phantom_refs(true);
+		System.out.println("Second soot has these options: " + options2final);
+		System.out.println("Second soot has this classpath: "+ Scene.v().getSootClassPath());
+		//Scene.v().getApplicationClasses().clear();
+		//also want to clear the nametoclass map of the main class entry
+		//Scene.v().removeClass(Scene.v().getSootClassUnsafe(options.getOptionValue("mainClass")));
+        soot.Main.main(options2final.toArray(new String[0]));
 	}
 
 	private static Transformer createRenameTransformer(List<String> options1, String originalList){
@@ -118,6 +142,15 @@ public class SemanticDiffer{
 	private static Transformer createDiffTransformer(){
 		return new SceneTransformer() {
 			protected void internalTransform(String phaseName, Map originalOptions) {
+
+				List<String> mainClassPackageNameComponents = new ArrayList<String>();
+				String[] mainClassPackageNameComponentsAll = options.getOptionValue("mainClass").split("\\.");
+				
+				for(int i =0; i< mainClassPackageNameComponentsAll.length-1; i++){
+					mainClassPackageNameComponents.add(mainClassPackageNameComponentsAll[i]);
+				}
+				String mainClassPackageName = String.join("/", mainClassPackageNameComponents) + "/";
+				
 				System.err.println("SCENE2: "+ Scene.v());
 				Scene.v().getApplicationClasses().clear();
 				System.err.println("Initial classes: ");
@@ -125,8 +158,9 @@ public class SemanticDiffer{
 				//Scene.v().printNameToClass();
 				System.err.println("Initial classes END ");
 
-				Scene.v().setSootClassPath(options.getOptionValue("redefcp"));
-				ArrayList<SootClass> allRedefs = gatherClassesFromDir(options.getOptionValue("redefcp"));
+				Scene.v().setSootClassPath(options.getOptionValue("redefcp")+":"+Scene.v().getSootClassPath());
+				System.err.println("classpath before redef classes load: "+ Scene.v().getSootClassPath());
+				ArrayList<SootClass> allRedefs = gatherClassesFromDir(options.getOptionValue("redefcp")+"/"+mainClassPackageName, mainClassPackageName.replace("/", "."));
 				for(SootClass redef : allRedefs){
 					//this is so that the redef classes will also get output'd by soot
 					redef.setApplicationClass();
@@ -136,9 +170,15 @@ public class SemanticDiffer{
 				System.err.println(Scene.v().getApplicationClasses());
 
 				
-				Scene.v().setSootClassPath(renameResultDir);
-				ArrayList<SootClass> allOriginals = gatherClassesFromDir(renameResultDir);
+				Scene.v().setSootClassPath(renameResultDir+":"+Scene.v().getSootClassPath());
+				System.err.println("classpath before renamed classes load: "+ Scene.v().getSootClassPath());
+				ArrayList<SootClass> allOriginals = gatherClassesFromDir(renameResultDir + "/"+mainClassPackageName, mainClassPackageName.replace("/", "."));
 
+				//for(SootClass og : allOriginals){
+					//this is so the classes dont get set as phantom?
+				//	og.setApplicationClass();
+				//}
+				
 				sortClasses(allOriginals, allRedefs);
 				System.err.println("Classes map after the sort: "+ originalToRedefinitionClassMap);
 				
@@ -155,6 +195,8 @@ public class SemanticDiffer{
 					//Scene.v().printNameToClass();
 					System.err.println("Original resolving level: "+ original.resolvingLevel());
 					System.err.println("redefinition resolving level: "+ redefinition.resolvingLevel());
+					System.err.println("Original is phantom: "+ original.isPhantomClass());
+					System.err.println("Redef is phantom: "+ redefinition.isPhantomClass());
 				}
 
 
@@ -165,8 +207,11 @@ public class SemanticDiffer{
 
 				//TODO find better way to init, some of this wont work under nonequal og:redef ratios
 				for(SootClass redef : allRedefs){
-					SootClass newClass = new SootClass(redef.getPackageName()+redef.getName()+"NewClass", redef.getModifiers());
-					newClass.setSuperclass(redef.getSuperclass());
+					System.out.println("Creating a new class with the following name: "+ redef.getName()+"NewClass");
+					SootClass newClass = new SootClass(redef.getName()+"NewClass", redef.getModifiers());
+					if(redef.hasSuperclass()){
+						newClass.setSuperclass(redef.getSuperclass());
+					}
 					newClassMap.put(redef, newClass);
 					newClassMapReversed.put(newClass, redef);
 				}
@@ -185,9 +230,11 @@ public class SemanticDiffer{
 					String ogRedefName = redef.getName();
 					redef.rename(ogRedefName+"Original");
 					redef.rename(ogRedefName);
+					allEmittedClassesRedefs.add(redef.getName());
 				}
 				for(SootClass newCls : newClassMap.values()){
 					Scene.v().addClass(newCls);
+					allEmittedClassesHostClasses.add(newCls.getName());
 					writeNewClass(newCls);
 				}
 			}
@@ -409,7 +456,7 @@ public class SemanticDiffer{
 			System.err.println("\tInheritance Diff!");
 			System.err.println("\tOriginal class has superclass: " + original.getSuperclassUnsafe() + " and redefinition has superclass: " + redefinition.getSuperclassUnsafe());
 
-		} else if(!(redefinition.getSuperclass().getName().equals(original.getSuperclass().getName())) && !(redefinition.getSuperclass().getName()+originalRenameSuffix).equals(original.getSuperclass().getName())) {
+		} else if(redefinition.hasSuperclass() && original.hasSuperclass() && !(redefinition.getSuperclass().getName().equals(original.getSuperclass().getName())) && !(redefinition.getSuperclass().getName()+originalRenameSuffix).equals(original.getSuperclass().getName())) {
 			System.err.println("\tInheritance Diff!");
 			System.err.println("\tOriginal class has superclass: " + original.getSuperclassUnsafe() + " and redefinition has superclass: " + redefinition.getSuperclassUnsafe());
 
@@ -430,7 +477,8 @@ public class SemanticDiffer{
 	}
 
 	//resolves all of the classes in some dir that defines the patch (== set of classes)
-	private static ArrayList<SootClass> gatherClassesFromDir(String strdir){
+	private static ArrayList<SootClass> gatherClassesFromDir(String strdir, String packagename){
+		System.out.println("Gathering classes from : "+ strdir);
 		ArrayList<String> allNames = new ArrayList<String>();
 		try{
 			File dir = new File(strdir);
@@ -440,7 +488,8 @@ public class SemanticDiffer{
 					if(file.toString().contains("class")){
 						//ugly parsing, its the only way tho?
 						String classname = file.toString().replaceFirst(strdir , "").replace(".class", "").replaceAll("\\/", ".");
-						allNames.add(classname);
+						System.out.println("Gathering class: "+ packagename+classname);
+						allNames.add(packagename+classname);
 						}
 				}
 			} else {
@@ -479,5 +528,12 @@ public class SemanticDiffer{
 		 }
 		 return allClasses;
 	}
+
+	public static List<String> getGeneratedClassesRedefs(){
+		return allEmittedClassesRedefs;
+	}
+	public static List<String> getGeneratedClassesHosts(){
+        return allEmittedClassesHostClasses;
+    }
 				
 }
