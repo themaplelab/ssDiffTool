@@ -1,10 +1,10 @@
 package differ;
 
-
 import java.util.Map;
 import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.io.IOException;
 
 import java.io.OutputStream;
@@ -36,6 +36,7 @@ import soot.util.Chain;
 import soot.jimple.JasminClass;
 import soot.options.Options;
 import soot.util.JasminOutputStream;
+import soot.asm.CacheClassProvider;
 
 public class SemanticDiffer{
 
@@ -105,12 +106,20 @@ public class SemanticDiffer{
 		options2final.add("-w");
 		options2final.add( options.getOptionValue("mainClass"));
 		//options2.set(options2.size()-3,  options.getOptionValue("mainClass"));
-		Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":" +options1.get(1));
+
+		//this is so that when using src_cache we can get all classes from scc EXCEPT the app class
+		List<String> classpathForSootTwo = Arrays.asList(options1.get(1).split(":"));
+		System.out.println("SSDIFF list of cp is: "+ classpathForSootTwo);
+		classpathForSootTwo.set(0, "");
+		String choppedClasspath = String.join(":", classpathForSootTwo);
+		System.out.println("SSDIFF choppedClasspath: "+ choppedClasspath);
+		Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":" +choppedClasspath);
 		Options.v().set_output_dir(options.getOptionValue("altDest"));
 		Options.v().set_src_prec(Options.v().src_prec_cache);
 		//Options.v().set_allow_phantom_refs(true);
 		System.out.println("Second soot has these options: " + options2final);
-		System.out.println("Second soot has this classpath: "+ Scene.v().getSootClassPath());
+		System.out.println("Second soot has this classpath (newvs): "+ Scene.v().getSootClassPath());
+		CacheClassProvider.setTestClassUrl(""); //this is a bad way to set this
 		//Scene.v().getApplicationClasses().clear();
 		//also want to clear the nametoclass map of the main class entry
 		//Scene.v().removeClass(Scene.v().getSootClassUnsafe(options.getOptionValue("mainClass")));
@@ -376,9 +385,9 @@ public class SemanticDiffer{
 		}
 
 		for(SootMethod method : redefinition.getMethods()){
-			
-				boolean matched = false;
-				Integer hash = new Integer(ownEquivMethodHash(method));
+
+			boolean matched = false;
+			Integer hash = new Integer(ownEquivMethodHash(method));
 				redefinitionHashMethods.put(hash, method);
 				if(!originalHashMethods.containsKey(hash)){ 
 					//modified pre-existing method
@@ -393,21 +402,22 @@ public class SemanticDiffer{
 						boolean sameParameters = originalMethod.getParameterTypes().equals(method.getParameterTypes());
 																							
 						
-						if(sameType && sameName && sameParameters) {
+						if(sameType && sameName && sameParameters && !sameModifiers) {
 							//modified modifiers
 							matched = true;
 							originalToRedefinitionMap.put(originalMethod, method);
 
 							System.err.println("\t The following method has had modifiers altered: \n");
 							System.err.println(originalMethod.getDeclaration() + "  --->  " + method.getDeclaration());
-						} else if(sameType && sameModifiers && sameParameters){
+						}/* else if(sameType && sameModifiers && sameParameters){
 							//modified name, actually NOT SURE
 							matched = true;
 							originalToRedefinitionMap.put(originalMethod, method);
 
 							System.err.println("\t The following method has had its name altered: \n");
                             System.err.println(originalMethod.getDeclaration() + "  --->  " + method.getDeclaration());
-						} else if(sameModifiers && sameName && sameParameters){
+							} */
+						else if(sameModifiers && sameName && sameParameters && !sameType){
 							//modified return type
 							matched = true;
 							originalToRedefinitionMap.put(originalMethod, method);
