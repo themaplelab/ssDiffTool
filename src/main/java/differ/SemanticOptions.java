@@ -10,7 +10,7 @@ public class SemanticOptions extends Options {
 		Option redefinitionClass = Option.builder().longOpt("redefcp").hasArg().required().desc("Specify the classpath of the redefinition classes.").build();
 		addOption(redefinitionClass);
 
-		Option originalClass = Option.builder().longOpt("originalclasslist").hasArg().required().desc("Specify a file containing the list of original classes.").build();
+		Option originalClass = Option.builder().longOpt("originalclasslist").hasArg().desc("Specify a file containing the list of original classes.").build();
         addOption(originalClass);
 
 		Option firstDest = Option.builder().longOpt("firstDest").hasArg().desc("Specify the first directory for the renamed class to go to.").build();
