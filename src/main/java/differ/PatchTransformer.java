@@ -76,6 +76,10 @@ public class PatchTransformer{
 		for(SootMethod m : addedMethods){
 			SootMethodRef oldRef = m.makeRef();
 			redefinition.removeMethod(m);
+			 if(m.isPrivate()){
+				 //clear private, set protected                                                                           
+				 m.setModifiers((m.getModifiers()&(~Modifier.PRIVATE)) | Modifier.PROTECTED);
+			 }
 			redefToNewClassMap.get(redefinition).addMethod(m);
 			oldMethodToNew.put(oldRef, m.makeRef());
 			newMethods.add(m);
@@ -374,6 +378,7 @@ public class PatchTransformer{
 		fixFieldRefs(redefinition);
 
 		for(SootField field : addedFields){
+			System.out.println("Removing this field: "+field.getSignature()+" from this class: "+redefinition.getName());
 			redefinition.removeField(field);
 		}
 	}
@@ -381,9 +386,10 @@ public class PatchTransformer{
 	//adds the field to the new class and if the field was private constructs an accessor for it
 	private void fixFields(SootField field, SootClass redefinition){
 		//cant actually just move the same field ref, need it to exist in both classes simultaneously in order to fix refs
-		SootField newField = new SootField(field.getName(), field.getType(), field.getModifiers());
+		SootField newField = new SootField(field.getName(), field.getType(), field.getModifiers()| Modifier.STATIC);
 		SootClass newClass = redefToNewClassMap.get(redefinition);
-		newClass.addField(newField); 
+		newClass.addField(newField);
+		System.out.println("Adding this field: "+ newField.getSignature()+ " to this new class: "+ newClass.getName());
 		oldFieldToNew.put(field, newField);
 		
 		System.out.println("is the newfield static?: "+ newField.isStatic());
@@ -395,9 +401,9 @@ public class PatchTransformer{
 		//getter first
 			//need the acessor to be public , might need to also be static
 			int modifiers = Modifier.PROTECTED;
-			if(field.isStatic()){
+			//if(field.isStatic()){
 				modifiers |= Modifier.STATIC;
-			}
+				//}
 			SootMethod newGetter = new SootMethod(methodName, Arrays.asList(new Type[]{}), field.getType(), modifiers);
 
 			JimpleBody getterBody = Jimple.v().newBody(newGetter);
@@ -407,7 +413,18 @@ public class PatchTransformer{
 			//must create local then can return that
 			Local tmpref =  Jimple.v().newLocal("tmpref", field.getType());
 			getterBody.getLocals().add(tmpref);
-			units.add(Jimple.v().newAssignStmt(tmpref, Jimple.v().newStaticFieldRef(newField.makeRef())));
+			//if(field.isStatic()){
+		   	units.add(Jimple.v().newAssignStmt(tmpref, Jimple.v().newStaticFieldRef(newField.makeRef())));
+
+			/*
+			//}else{
+				//assign a local for self so we can ref our own field
+				Local selfref =  Jimple.v().newLocal("selfref", newClass.getType());
+				getterBody.getLocals().add(selfref);
+				units.add(Jimple.v().newIdentityStmt(selfref, new ThisRef(newClass.getType())));
+				units.add(Jimple.v().newAssignStmt(tmpref, Jimple.v().newInstanceFieldRef(selfref, newField.makeRef())));
+				}*/
+
 			units.add(Jimple.v().newReturnStmt(tmpref));
 			
 			newClass.addMethod(newGetter);
@@ -425,7 +442,18 @@ public class PatchTransformer{
 			Local paramref =  Jimple.v().newLocal("paramref", field.getType());
 			setterBody.getLocals().add(paramref);
 			setterUnits.add(Jimple.v().newIdentityStmt(paramref, Jimple.v().newParameterRef(field.getType(), 0)));
-			setterUnits.add(Jimple.v().newAssignStmt(Jimple.v().newStaticFieldRef(newField.makeRef()), paramref));
+			//	if(field.isStatic()){
+ 				setterUnits.add(Jimple.v().newAssignStmt(Jimple.v().newStaticFieldRef(newField.makeRef()), paramref));
+				//}else{
+				//assign a local for self so we can ref our own field
+				/*
+				
+                Local selfref =  Jimple.v().newLocal("selfref", newClass.getType());
+                setterBody.getLocals().add(selfref);
+                setterUnits.add(Jimple.v().newIdentityStmt(selfref, new ThisRef(newClass.getType())));
+				setterUnits.add(Jimple.v().newAssignStmt(Jimple.v().newInstanceFieldRef(selfref , newField.makeRef()), paramref));
+			}
+	*/
 			setterUnits.add(Jimple.v().newReturnVoidStmt());
 			newClass.addMethod(newSetter);
 			fieldToSetter.put(field, newSetter);
@@ -495,7 +523,12 @@ public class PatchTransformer{
 								System.out.println("doing a field ref replace: " + ref + " --->" + newAccessor);
 								System.out.println("in this statement: "+ s);
 								//def boxes only to be nonempty on identitystmts or assignstmts
-								units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newStaticInvokeExpr(newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
+								//if(ref.isStatic()){
+									units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newStaticInvokeExpr(newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
+									//}
+									/*else{
+									units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr((Local)s.getLeftOp(), newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
+									}*/
 								units.remove(u);
 								
 
