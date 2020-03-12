@@ -21,6 +21,7 @@ import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Option; //rm later?
 
+import soot.Modifier;
 import soot.G;
 import soot.Main;
 import soot.PackManager;
@@ -108,15 +109,19 @@ public class SemanticDiffer{
 		//options2.set(options2.size()-3,  options.getOptionValue("mainClass"));
 
 		//this is so that when using src_cache we can get all classes from scc EXCEPT the app class
-		List<String> classpathForSootTwo = Arrays.asList(options1.get(1).split(":"));
+		/*List<String> classpathForSootTwo = Arrays.asList(options1.get(1).split(":"));
 		System.out.println("SSDIFF list of cp is: "+ classpathForSootTwo);
 		classpathForSootTwo.set(0, "");
 		String choppedClasspath = String.join(":", classpathForSootTwo);
 		System.out.println("SSDIFF choppedClasspath: "+ choppedClasspath);
 		Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":" +choppedClasspath);
+		*/
+		Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":"+options1.get(1));
+
 		Options.v().set_output_dir(options.getOptionValue("altDest"));
 		Options.v().set_src_prec(Options.v().src_prec_cache);
-		//Options.v().set_allow_phantom_refs(true);
+		Options.v().set_allow_phantom_refs(true);
+		Options.v().setPhaseOption("cg", "all-reachable:true");
 		System.out.println("Second soot has these options: " + options2final);
 		System.out.println("Second soot has this classpath (newvs): "+ Scene.v().getSootClassPath());
 		CacheClassProvider.setTestClassUrl(""); //this is a bad way to set this
