@@ -25,6 +25,9 @@ public class SemanticOptions extends Options {
 
 		Option mainClass = Option.builder().longOpt("mainClass").hasArg().desc("Specify the actual main class of the application, to be provided to Soot AFTER Soot startup has occurred.").build();
         addOption(mainClass);
+
+		Option differClasspath = Option.builder().longOpt("differClasspath").hasArg().desc("Specify the classpath for the patch adapter's run of soot. May be different than that of a Cogni+Soot run.").build();
+		addOption(differClasspath);
 		
 	}
 
