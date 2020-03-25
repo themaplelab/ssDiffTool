@@ -51,8 +51,6 @@ public class PatchTransformer{
 	private HashMap<SootClass, SootClass> redefToNewClassMap;
 	//we have guarantee 1:1 map, this is needed for ref fixing, is ugly but again, what else?
 	private HashMap<SootClass, SootClass> newToRedefClassMap;
-	//TODO rm newClassHasStaticInit in a cleanup commit
-	private boolean newClassHasStaticInit = false;
 	private Filter explicitInvokesFilter;
 	//idk if this is best or second element on one hashmap should be list
 	private HashMap<SootField, SootMethod> fieldToGetter = new HashMap<SootField, SootMethod>();
@@ -245,7 +243,7 @@ public class PatchTransformer{
 		Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
 		body.getLocals().add(invokeobj);
 		//TODO fix this for the methodrefs in the added methods, those should just use "this" not new local
-		createInitializer(newClass);
+		//createInitializer(newClass);
 		units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType())), currentInsn);
 		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())) , currentInsn);
 		SootMethodRef newClassMethod = newClass.getMethod(invokeExpr.getMethodRef().getSubSignature()).makeRef();
@@ -331,7 +329,7 @@ public class PatchTransformer{
 			
 
 		}else{
-		createInitializer(newClass);
+			//createInitializer(newClass);
 		invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
 		body.getLocals().add(invokeobj);
 
@@ -541,7 +539,7 @@ public class PatchTransformer{
 		}
 	}
 
-	private void createInitializer(SootClass newClass){
+	public static void createInitializer(SootClass newClass){
 		//only want to create one initialization function
 		 if(newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()) == null){
 			 //is that a good access level? no reason to not use public, but ... should we?
@@ -564,7 +562,7 @@ public class PatchTransformer{
 		 }
 	}
 		
-	private void createStaticInitializer(SootClass newClass){
+	private static void createStaticInitializer(SootClass newClass){
 		//only want to create one static initialization function
 		if(newClass.getMethodUnsafe("<clinit>", Arrays.asList(new Type[]{}), VoidType.v()) == null){
 			SootMethod initializer = new SootMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v(), Modifier.STATIC);
@@ -573,7 +571,6 @@ public class PatchTransformer{
 			Chain units = body.getUnits();
 			units.add(Jimple.v().newReturnVoidStmt());
             newClass.addMethod(initializer);
-			newClassHasStaticInit = true;
 		}
 	}
 
@@ -589,5 +586,71 @@ public class PatchTransformer{
 		}
 		return false;
 	}
+
+       /*
+        * builds two maps
+        * hostToOriginal object refs
+        * originalToHost object refs
+        * not efficient, but we need both ways
+        */
+       public static void buildHostMaps(SootClass newClass, String fieldname){
+
+               createStaticInitializer(newClass);
+
+               /* same beginning:                                                                                      
+         * java.util.Hashtable $r0;                                                                               
+         * $r0 = new java.util.Hashtable;                                                                         
+         * specialinvoke $r0.<java.util.Hashtable: void <init>()>();                                              
+         * <Hashtableexample: java.util.Hashtable xfieldtable> = $r0;                                             
+                */
+               //add the field                                                                                            
+        RefType HT = RefType.v("java.util.Hashtable");
+        SootField replacementField = new SootField(fieldname +"HashTable", HT, Modifier.PUBLIC | Modifier.STATIC);
+        newClass.addField(replacementField);
+               //initialize it bc its static                                                                             
+               Body clinitBody = newClass.getMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v()).retrieveActiveBody();
+        PatchingChain<Unit> clinitUnits = clinitBody.getUnits();
+
+        Local hashtable =  Jimple.v().newLocal("HTTemp", HT);
+        clinitBody.getLocals().add(hashtable);
+
+        //build in bottom up order, bc we dont have any other reference point in the method atm
+               
+        clinitUnits.addFirst(Jimple.v().newAssignStmt(Jimple.v().newStaticFieldRef(replacementField.makeRef()), hashtable));
+        SootMethod toCall = Scene.v().getMethod("<java.util.Hashtable: void <init>()>");
+        clinitUnits.addFirst(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(hashtable, toCall.makeRef())));
+        clinitUnits.addFirst(Jimple.v().newAssignStmt(hashtable, Jimple.v().newNewExpr(HT)));
+       }
+
+       public static void setupRedefInit(SootClass redef, SootClass newClass){
+               Body body = redef.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).retrieveActiveBody();
+			   PatchingChain<Unit> units = body.getUnits();;
+               RefType HT = RefType.v("java.util.Hashtable");
+               Local hashtableOGToHost =  Jimple.v().newLocal("hashtableOGToHost", HT);
+               body.getLocals().add(hashtableOGToHost);
+               Local hashtableHostToOG =  Jimple.v().newLocal("hashtableHostToOG", HT);
+               body.getLocals().add(hashtableHostToOG);
+               Local newclassref = Jimple.v().newLocal("newclassref", redef.getType());
+               body.getLocals().add(newclassref);
+
+               Local thisref = body.getThisLocal();
+               Unit initRet = units.getLast();
+
+
+               SootMethodRef hashtablePut = Scene.v().getMethod("<java.util.Hashtable: java.lang.Object put(java.lang.Object,java.lang.Object)>").makeRef();
+               units.insertBefore(Jimple.v().newAssignStmt(newclassref, Jimple.v().newNewExpr(newClass.getType())), initRet);
+        units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(newclassref, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())), initRet);
+
+
+               units.insertBefore(Jimple.v().newAssignStmt(hashtableOGToHost, Jimple.v().newStaticFieldRef(newClass.getFieldByName("originalToHostHashTable").makeRef())), initRet);
+               units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(hashtableOGToHost, hashtablePut, Arrays.asList(new Value[]{thisref, newclassref}))), initRet);
+
+               units.insertBefore(Jimple.v().newAssignStmt(hashtableHostToOG, Jimple.v().newStaticFieldRef(newClass.getFieldByName("hostToOriginalHashTable").makeRef())), initRet);
+        units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(hashtableHostToOG, hashtablePut, Arrays.asList(new Value[]{newclassref, thisref}))), initRet);
+               
+               
+       }
+		
+
 
 }

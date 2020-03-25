@@ -228,6 +228,11 @@ public class SemanticDiffer{
 					}
 					newClassMap.put(redef, newClass);
 					newClassMapReversed.put(newClass, redef);
+					PatchTransformer.createInitializer(newClass);
+					//all newclasses will have maps to track who they belong with
+					PatchTransformer.buildHostMaps(newClass, "originalToHost");
+					PatchTransformer.buildHostMaps(newClass, "hostToOriginal");
+					PatchTransformer.setupRedefInit(newClass, redef);
 				}
 				for(SootClass og : originalToRedefinitionClassMap.keySet()){
 					diff(og, originalToRedefinitionClassMap.get(og));
