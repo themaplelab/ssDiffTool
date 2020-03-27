@@ -294,20 +294,22 @@ public class SemanticDiffer{
 	private static void diff(SootClass original, SootClass redefinition){
 		System.err.println("\n##########################################");
 		System.err.println("Diff Report for original: " + original.getName() + " compared to redefinition: "+ redefinition.getName());
-		System.err.println("---------------------------------------");
-		checkFields(original, redefinition);
-		System.err.println("---------------------------------------");
-		checkMethods(original, redefinition);
+		CheckSummary fieldSummary = checkFields(original, redefinition);
+		CheckSummary methodSummary = checkMethods(original, redefinition);
 		System.err.println("---------------------------------------");
         checkInheritance(original, redefinition);
+		System.err.println("---------------------------------------");
+		finishFieldSummary(fieldSummary, redefinition, methodSummary);
+		System.err.println("---------------------------------------");
+		finishMethodSummary(methodSummary, redefinition);
+		System.err.println("---------------------------------------");
         System.err.println("##########################################\n");
 	}
 	
-	private static void checkFields(SootClass original, SootClass redefinition){
-		List<SootField> removedFields = new ArrayList<SootField>();
-		List<SootField> addedFields = new ArrayList<SootField>();
+	private static CheckSummary checkFields(SootClass original, SootClass redefinition){
 		HashMap<SootField, SootField> originalToRedefinitionMap = new HashMap<SootField, SootField>();
-
+		CheckSummary fieldSummary = new CheckSummary<SootField>();
+		
 		//to avoid recomputing the equivalence checks for all original fields
 		HashMap<Integer, SootField> originalHashFields = new HashMap<Integer, SootField>(); 
 		HashMap<Integer, SootField> redefinitionHashFields = new HashMap<Integer, SootField>();
@@ -353,39 +355,48 @@ public class SemanticDiffer{
 					}
 					if(!matched){
 						//added field means at least two (or even all three) of the above id factors are different
-						addedFields.add(field);
+						fieldSummary.addAddedItem(field);
 					}
 				}
 			}
 			for(SootField field : original.getFields()){
 				if(!originalToRedefinitionMap.containsKey(field) && !redefinitionHashFields.containsKey(new Integer(field.equivHashCode()))) {
-					removedFields.add(field);
+					fieldSummary.addRemovedItem(field);
 				}
 			}
 
-			if(addedFields.size() != 0){	
+			if (originalToRedefinitionMap.size() == 0){
+				fieldSummary.changes = false;
+			}else{
+				fieldSummary.changes = true;
+			}
+			return fieldSummary;
+
+	}
+	private static void finishFieldSummary(CheckSummary fieldSummary, SootClass redefinition, CheckSummary methodSummary){
+			if(fieldSummary.addedList.size() != 0){	
 				System.err.println("\t Field(s) have been added.");
-				System.err.println(addedFields);
-				patchTransformer.transformFields(redefinition, addedFields);
-			}else if(removedFields.size() != 0){
+				System.err.println(fieldSummary.addedList);
+				patchTransformer.transformFields(redefinition, fieldSummary.addedList, methodSummary.addedList);
+			}else if(fieldSummary.removedList.size() != 0){
 				System.err.println("\tField(s) has been removed");
-				System.err.println(removedFields);
-				for(SootField f : removedFields){
-					//silly thing to have this flag                                                                            
+				System.err.println(fieldSummary.removedList);
+				for(Object generic : fieldSummary.removedList){
+					//silly thing to have this flag
+					SootField f = (SootField) generic;
 					f.setDeclared(false);
 					redefinition.addField(f);
                 }
-			}else if (originalToRedefinitionMap.size() == 0){
+			}else if (!fieldSummary.changes){
 				System.err.println("\tNo Field differences!");
 			}
 			
 	}
 
-	private static void checkMethods(SootClass original, SootClass redefinition){
-		List<SootMethod> removedMethods = new ArrayList<SootMethod>();
-		List<SootMethod> addedMethods = new ArrayList<SootMethod>();
+	private static CheckSummary checkMethods(SootClass original, SootClass redefinition){
 		HashMap<SootMethod, SootMethod> originalToRedefinitionMap = new HashMap<SootMethod, SootMethod>();
-
+		CheckSummary methodSummary = new CheckSummary<SootMethod>();
+		
 		//to avoid recomputing the equivalence checks for all original methods
 		HashMap<Integer, SootMethod> originalHashMethods = new HashMap<Integer, SootMethod>(); 
 		HashMap<Integer, SootMethod> redefinitionHashMethods = new HashMap<Integer, SootMethod>();
@@ -440,33 +451,42 @@ public class SemanticDiffer{
 					}
 					if(!matched){
 						//added method means at least two (or even all three) of the above id factors are different
-						addedMethods.add(method);
+						methodSummary.addAddedItem(method);
 					}
 				}
 			}
 			for(SootMethod method : original.getMethods()){
 				if(!originalToRedefinitionMap.containsKey(method) && !redefinitionHashMethods.containsKey(new Integer(ownEquivMethodHash(method)))) {
-					removedMethods.add(method);
+					methodSummary.addRemovedItem(method);
 				}
 			}
 
-			if(addedMethods.size() != 0){	
+			if (originalToRedefinitionMap.size() == 0){
+				methodSummary.changes = false;
+			} else{
+				methodSummary.changes = true;
+			}
+			
+			return methodSummary;
+	}
+	private static void finishMethodSummary(CheckSummary methodSummary, SootClass redefinition){
+			if(methodSummary.addedList.size() != 0){	
 				System.err.println("\t Method(s) have been added.");
-				System.err.println(addedMethods);
+				System.err.println(methodSummary.addedList);
 				//do the method stealing as we go
-				patchTransformer.stealMethodCalls(redefinition, addedMethods);
-			}else if(removedMethods.size() != 0){
+				patchTransformer.stealMethodCalls(redefinition, methodSummary.addedList);
+			}else if(methodSummary.removedList.size() != 0){
 				System.err.println("\tMethod(s) has been removed");
-				System.err.println(removedMethods);
-				for(SootMethod m : removedMethods){
+				System.err.println(methodSummary.removedList);
+				for(Object generic : methodSummary.removedList){
 					//silly thing to have this flag
+					SootMethod m = (SootMethod)generic;
 					m.setDeclared(false);
 					redefinition.addMethod(m);
 				}
-			}else if (originalToRedefinitionMap.size() == 0){
+			}else if (!methodSummary.changes){
 				System.err.println("\tNo Method differences!");
 			}
-			
 	}
 	
 	private static void checkInheritance(SootClass original, SootClass redefinition){
