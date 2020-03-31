@@ -151,11 +151,9 @@ public class PatchTransformer{
 							}
 						} else {
 						//more than one target
-							boolean relevantCalls = false;
 							for(SootMethod target : sortedTargets){
 								System.out.println("This target is one we are fixing: "+ target);
 								constructGuard(target, body , units, insnAfterInvokeInsn, u);
-								relevantCalls = true;
 							}
 							units.remove(u);
 								//now possibly replace the static method ref here as well
@@ -333,14 +331,10 @@ public class PatchTransformer{
 			
 
 		}else{
-			//createInitializer(newClass);
-		invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
-		body.getLocals().add(invokeobj);
 
-		//build the new call setup
-		units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType())), currentInsn);
-		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())), currentInsn);
-		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
+			invokeobj = lookup(newClass, body, units, currentInsn, base);
+			//build the new call 
+			units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
 
 		}
 
@@ -349,26 +343,11 @@ public class PatchTransformer{
 		
 		System.out.println("This is the method ref: "+ invokeExpr.getMethodRef());
 		System.out.println("This is the method ref declaring class: "+ invokeExpr.getMethodRef().getDeclaringClass());
-		
-		
-		
-		Local boolTautology = Jimple.v().newLocal("boolTautology", BooleanType.v());
-		body.getLocals().add(boolTautology);
-		
-		
-		//build a tautology
-		IntConstant one=IntConstant.v(1);
-		Local condition=Jimple.v().newLocal("i", IntType.v());
-		body.getLocals().add(condition);
-		//units.insertBefore(Jimple.v().newAssignStmt(condition, IntConstant.v(1)), currentInsn);
-		//units.insertBefore(Jimple.v().newAssignStmt(boolTautology, Jimple.v().newEqExpr(condition,one)), currentInsn);
+
+		//not sure if needed, I think dead code
 		units.insertBefore(nop, currentInsn);
 		
 		System.out.println("This is the (newToRedefClassMap: "+ newToRedefClassMap);
-		//units.insertBefore(Jimple.v().newAssignStmt(boolInstanceOf, Jimple.v().newInstanceOfExpr(base , target.getDeclaringClass().getType())) , currentInsn);
-		//units.insertBefore(Jimple.v().newIfStmt(bool, newBlock), currentInsn); 
-		//units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(boolInstanceOf, boolTautology), newBlock), currentInsn);
-		//units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(boolInstanceOf, IntConstant.v(0)), );
 	}
 	
 	public void transformFields(SootClass redefinition, List<SootField> addedFields, List<SootMethod> addedMethods){
