@@ -51,6 +51,8 @@ public class SemanticDiffer{
 	private static HashMap<SootClass, SootClass> originalToRedefinitionClassMap = new HashMap<SootClass, SootClass>();
 	private static List<String> allEmittedClassesRedefs = new ArrayList<String>();
 	private static List<String> allEmittedClassesHostClasses = new ArrayList<String>();
+
+	private static HashMap<SootClass, List<CheckSummary>> redefToDiffSummary = new HashMap<SootClass, List<CheckSummary>>();
 	
 	public static void main(String[] args) throws ParseException {
 
@@ -239,9 +241,10 @@ public class SemanticDiffer{
 				}
 				//now? fix all of the method references everywhere, in classes we are outputting
 				for(SootClass redef : allRedefs){
-					patchTransformer.transformMethodCalls(redef.getMethods());
+					//patchTransformer.transformMethodCalls(redef.getMethods(), redefToDiffSummary.get(redef)[0].addedList);
+					patchTransformer.transformMethodCalls(redef.getMethods(), true);
 					//might need to omit the init and clinit on this one?
-					patchTransformer.transformMethodCalls(newClassMap.get(redef).getMethods());
+					patchTransformer.transformMethodCalls(newClassMap.get(redef).getMethods(), false);
 				}
 				
 				//weird hack to get soot/asm to fix all references in the class to align with renaming to OG name
@@ -296,6 +299,10 @@ public class SemanticDiffer{
 		System.err.println("Diff Report for original: " + original.getName() + " compared to redefinition: "+ redefinition.getName());
 		CheckSummary fieldSummary = checkFields(original, redefinition);
 		CheckSummary methodSummary = checkMethods(original, redefinition);
+		List<CheckSummary> summaryList = new ArrayList<CheckSummary>();
+		summaryList.add(methodSummary);
+		summaryList.add(fieldSummary);
+		redefToDiffSummary.put(redefinition, summaryList);
 		System.err.println("---------------------------------------");
         checkInheritance(original, redefinition);
 		System.err.println("---------------------------------------");

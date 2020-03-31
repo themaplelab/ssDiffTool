@@ -89,7 +89,7 @@ public class PatchTransformer{
 	}
 
 	//checks all of the provided methods for method refs that need fixing
-	public void transformMethodCalls(List<SootMethod> methods){
+	public void transformMethodCalls(List<SootMethod> methods, boolean isThisARedefClass ){
 		//the annoying issue of adding a constructor to this class if needed, which is determined while looping the methods
 		Chain<SootMethod> methodsChain = new HashChain<SootMethod>();
 	    for(SootMethod m : methods){
@@ -97,11 +97,11 @@ public class PatchTransformer{
 		}
 		for (Iterator<SootMethod> iter = methodsChain.snapshotIterator(); iter.hasNext();) {
 			SootMethod m = iter.next();
-			findMethodCalls(m);
+			findMethodCalls(m, isThisARedefClass);
         }
 	}
 
-	private void findMethodCalls(SootMethod m){
+	private void findMethodCalls(SootMethod m, boolean isThisARedefClass ){
 		CallGraph cg = Scene.v().getCallGraph();
 		Body body;
 		System.out.println("Finding method calls in : "+ m.getSignature());
@@ -144,10 +144,10 @@ public class PatchTransformer{
 							} else {
 								//otherwise we gotta create a var of newClass type to invoke this on
 								//TODO make this safe... need to singleton the locals ugh
-							System.out.println("This is the redeftonewMap" + redefToNewClassMap);
-							System.out.println("This is the target decl decl class: "+  target.getDeclaringClass().getName());
-							SootClass newClass = target.getDeclaringClass();
-							constructNewCall(newClass, invokeExpr, units, u, body);
+								System.out.println("This is the redeftonewMap" + redefToNewClassMap);
+								System.out.println("This is the target decl decl class: "+  target.getDeclaringClass().getName());
+								SootClass newClass = target.getDeclaringClass();
+								constructNewCall(newClass, invokeExpr, units, u, body, isThisARedefClass);
 							}
 						} else {
 						//more than one target
@@ -238,19 +238,22 @@ public class PatchTransformer{
 		}
 	}
 
-	private void constructNewCall(SootClass newClass, InvokeExpr invokeExpr, PatchingChain<Unit> units, Unit currentInsn, Body body){
+	private void constructNewCall(SootClass newClass, InvokeExpr invokeExpr, PatchingChain<Unit> units, Unit currentInsn, Body body, boolean isThisARedefClass){
 
 		System.out.println("This is the newclass getType: "+  newClass.getType());
-		Local invokeobj =  Jimple.v().newLocal("invokeobj", newClass.getType());
-		body.getLocals().add(invokeobj);
-		//TODO fix this for the methodrefs in the added methods, those should just use "this" not new local
-		//createInitializer(newClass);
-		units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newNewExpr(newClass.getType())), currentInsn);
-		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(invokeobj, newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())) , currentInsn);
+		Local newClassRef;
+
+		if(isThisARedefClass){
+			Value base = ((InstanceInvokeExpr)invokeExpr).getBase();
+			newClassRef = lookup(newClass, body, units, currentInsn, base);
+		}else{
+			newClassRef = body.getThisLocal();
+		}
+
 		SootMethodRef newClassMethod = newClass.getMethod(invokeExpr.getMethodRef().getSubSignature()).makeRef();
 		System.out.println("replacing a method call in this statement: "+ (Stmt)currentInsn);
 		System.out.println(invokeExpr.getMethodRef() + " ---> " + newClassMethod);
-		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, newClassMethod, invokeExpr.getArgs())) , currentInsn);
+		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(newClassRef, newClassMethod, invokeExpr.getArgs())) , currentInsn);
 		units.remove(currentInsn);
 	}
 
@@ -545,22 +548,10 @@ public class PatchTransformer{
 units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef(newClass.getFieldByName(ref.getName()).makeRef())), u);
 										 
                                      }else{
-										 System.out.println("building a an instance field (USE) access in a non added meethod");
-										 Local newClassRef = Jimple.v().newLocal("newClassRef", newClass.getType());
-										 body.getLocals().add(newClassRef);
-										 Local objecttemp = Jimple.v().newLocal("objecttemp", RefType.v("java.lang.Object"));
-										 body.getLocals().add(objecttemp);
-										 Local HT = Jimple.v().newLocal("HTFieldTemp", RefType.v("java.util.Hashtable"));
-										 body.getLocals().add(HT);	 
-										 
-										 units.insertBefore(Jimple.v().newAssignStmt(HT, Jimple.v().newStaticFieldRef(newClass.getFieldByName("originalToHostHashTable").makeRef())), u);
-										 
-										 SootMethodRef mapGetter = Scene.v().getMethod("<java.util.Hashtable: java.lang.Object get(java.lang.Object)>").makeRef();
-										 units.insertBefore(Jimple.v().newAssignStmt(objecttemp, Jimple.v().newVirtualInvokeExpr(HT, mapGetter, Arrays.asList( new Value[]{((InstanceFieldRef)s.getFieldRef()).getBase()}))), u);
+										 System.out.println("building a an instance field (USE) access in a non added method");
 
-										 //TODO fix this error
-										 units.insertBefore(Jimple.v().newAssignStmt(newClassRef, Jimple.v().newCastExpr(objecttemp, newClass.getType())), u);
-
+										 Local newClassRef = lookup(newClass, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase());
+										 
 										 units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newInstanceFieldRef(newClassRef, newref.makeRef())), u); //a bit of a redundant stmt but here for now
 
 									 }
@@ -745,7 +736,32 @@ units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef
                
                
        }
+
+	/*
+	 * Builds a lookup of a object
+	 * referring to some redefinition class
+	 * mapped to its host
+	 */
+	private Local lookup(SootClass newClass, Body body, PatchingChain<Unit> units, Unit insertBeforeHere, Value baseOfOriginalStmt){
 		
+		Local newClassRef = Jimple.v().newLocal("newClassRef", newClass.getType());
+		body.getLocals().add(newClassRef);
+		Local objecttemp = Jimple.v().newLocal("objecttemp", RefType.v("java.lang.Object"));
+		body.getLocals().add(objecttemp);
+		Local HT = Jimple.v().newLocal("HTFieldTemp", RefType.v("java.util.Hashtable"));
+		body.getLocals().add(HT);
+
+
+		units.insertBefore(Jimple.v().newAssignStmt(HT, Jimple.v().newStaticFieldRef(newClass.getFieldByName("originalToHostHashTable").makeRef())), insertBeforeHere);
+		
+		SootMethodRef mapGetter = Scene.v().getMethod("<java.util.Hashtable: java.lang.Object get(java.lang.Object)>").makeRef();
+		units.insertBefore(Jimple.v().newAssignStmt(objecttemp, Jimple.v().newVirtualInvokeExpr(HT, mapGetter, Arrays.asList( new Value[]{baseOfOriginalStmt}))), insertBeforeHere);
+
+		units.insertBefore(Jimple.v().newAssignStmt(newClassRef, Jimple.v().newCastExpr(objecttemp, newClass.getType())), insertBeforeHere);
+
+		return newClassRef;
+		
+	}
 
 
 }
