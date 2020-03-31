@@ -224,18 +224,27 @@ public class SemanticDiffer{
 				//TODO find better way to init, some of this wont work under nonequal og:redef ratios
 				for(SootClass redef : allRedefs){
 					System.out.println("Creating a new class with the following name: "+ redef.getName()+"NewClass");
-					SootClass newClass = new SootClass(redef.getName()+"NewClass", redef.getModifiers());
-					if(redef.hasSuperclass()){
-						newClass.setSuperclass(redef.getSuperclass());
-					}
+                    SootClass newClass = new SootClass(redef.getName()+"NewClass", redef.getModifiers());
 					newClassMap.put(redef, newClass);
-					newClassMapReversed.put(newClass, redef);
+                    newClassMapReversed.put(newClass, redef);
+				}
+
+				for(SootClass redef : allRedefs){
+					SootClass newClass = newClassMap.get(redef);
+					//if there is a host for the super, set that as its host's super                               
+                    if(newClassMap.get(redef.getSuperclass()) != null){
+                        newClass.setSuperclass(newClassMap.get(redef.getSuperclass()));
+                    } else {
+						newClass.setSuperclass(redef.getSuperclass());
+                    }
+
 					PatchTransformer.createInitializer(newClass);
 					//all newclasses will have maps to track who they belong with
 					PatchTransformer.buildHostMaps(newClass, "originalToHost");
 					PatchTransformer.buildHostMaps(newClass, "hostToOriginal");
 					PatchTransformer.setupRedefInit(newClass, redef);
 				}
+				
 				for(SootClass og : originalToRedefinitionClassMap.keySet()){
 					diff(og, originalToRedefinitionClassMap.get(og));
 				}
