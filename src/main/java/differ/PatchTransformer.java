@@ -569,21 +569,9 @@ units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef
                                      }else{
 										 System.out.println("building an instance field (DEF) access in a non added meethod");
                                          SootClass newClass = redefToNewClassMap.get(redefinition);
-                                         Local newClassRef = Jimple.v().newLocal("newClassRef", newClass.getType());
-                                         body.getLocals().add(newClassRef);
-                                         Local objecttemp = Jimple.v().newLocal("objecttemp", RefType.v("java.lang.Object"));
-                                         body.getLocals().add(objecttemp);
-                                         Local HT = Jimple.v().newLocal("HTFieldTemp", RefType.v("java.util.Hashtable"));
-                                         body.getLocals().add(HT);
-
-                                         units.insertBefore(Jimple.v().newAssignStmt(HT, Jimple.v().newStaticFieldRef(newClass.getFieldByName("originalToHostHashTable").makeRef())), u);
-
-										 SootMethodRef mapGetter = Scene.v().getMethod("<java.util.Hashtable: java.lang.Object get(java.lang.Object)>").makeRef();
- 
-                                         units.insertBefore(Jimple.v().newAssignStmt(objecttemp, Jimple.v().newVirtualInvokeExpr(HT, mapGetter, Arrays.asList( new Value[]{((InstanceFieldRef)s.getFieldRef()).getBase()}))), u);
-                                         units.insertBefore(Jimple.v().newAssignStmt(newClassRef, Jimple.v().newCastExpr(objecttemp, newClass.getType())), u);
-                                         
-										 units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(newClassRef, newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
+                                         Local newClassRef = lookup(newClass, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase());
+										 
+                                         units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(newClassRef, newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
 									 }
 								}	 
 								units.remove(u);
