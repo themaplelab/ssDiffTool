@@ -61,6 +61,10 @@ public class PatchTransformer{
 	//TODO decide if this is still needed?
 	private HashMap<SootMethodRef, SootMethodRef> oldMethodToNew = new HashMap<SootMethodRef, SootMethodRef>(); 
 	private ArrayList<SootMethod> newMethods = new ArrayList<SootMethod>();
+
+
+	private static String ogToHostHashTableName = "originalToHostHashTable";
+	private static String hostToOgHashTableName = "hostToOriginalHashTable";
 	
 	public PatchTransformer(HashMap<SootClass, SootClass> newClassMap, HashMap<SootClass, SootClass> newClassMapReversed){
 		//just want a ref, to same structure in SemanticDiffer
@@ -243,7 +247,7 @@ public class PatchTransformer{
 
 		if(isThisARedefClass){
 			Value base = ((InstanceInvokeExpr)invokeExpr).getBase();
-			newClassRef = lookup(newClass, body, units, currentInsn, base);
+			newClassRef = lookup(newClass, newClass, body, units, currentInsn, base, ogToHostHashTableName);
 		}else{
 			newClassRef = body.getThisLocal();
 		}
@@ -332,7 +336,7 @@ public class PatchTransformer{
 
 		}else{
 
-			invokeobj = lookup(newClass, body, units, currentInsn, base);
+			invokeobj = lookup(newClass, newClass, body, units, currentInsn, base, ogToHostHashTableName);
 			//build the new call 
 			units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
 
@@ -351,7 +355,6 @@ public class PatchTransformer{
 	}
 	
 	public void transformFields(SootClass redefinition, List<SootField> addedFields, List<SootMethod> addedMethods){
-		//fixFieldRefs(redefinition);
 		for(SootField field : addedFields){
 			fixFields(field, redefinition);
 		}
@@ -362,6 +365,10 @@ public class PatchTransformer{
 			System.out.println("Removing this field: "+field.getSignature()+" from this class: "+redefinition.getName());
 			redefinition.removeField(field);
 		}
+
+		//fix the field refs for "the other way" - refs using "this" that refer to a redef class, in an added method
+		fixFieldRefsInAddedMethods(redefinition, addedMethods);
+		
 	}
 
 	//adds the field to the new class and if the field was private constructs an accessor for it
@@ -501,11 +508,11 @@ public class PatchTransformer{
 								SootMethod newAccessor = fieldToGetter.get(ref);
 								System.out.println("doing a field ref replace: " + ref + " --->" + newAccessor);
 								System.out.println("in this statement: "+ s);
-								Local tmpRef;
-								 if(addedMethod){
+								Local tmpRef = Jimple.v().newLocal("tmpRef", ref.getType());
+								body.getLocals().add(tmpRef);
+
+								if(addedMethod){
 									 
-									 tmpRef = Jimple.v().newLocal("tmpRef", ref.getType());
-									 body.getLocals().add(tmpRef);
 									 //the field ref is in a stolen method
 									 if(ref.isStatic()){
 										 System.out.println("building a static getter ref in added method");
@@ -518,18 +525,16 @@ public class PatchTransformer{
 									 
 								 }else{
 									 SootClass newClass = redefToNewClassMap.get(redefinition);
-									 tmpRef = Jimple.v().newLocal("tmpRef", newClass.getType());
-                                     body.getLocals().add(tmpRef);
 									 
 									 //the field ref is in the redefinition class still, or some other class  
 									 if(ref.isStatic()){
 										 System.out.println("building a static direct field (USE) access in non added method");
-units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef(newClass.getFieldByName(ref.getName()).makeRef())), u);
+										 units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef(newClass.getFieldByName(ref.getName()).makeRef())), u);
 										 
                                      }else{
 										 System.out.println("building a an instance field (USE) access in a non added method");
 
-										 Local newClassRef = lookup(newClass, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase());
+										 Local newClassRef = lookup(newClass, newClass, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase(), ogToHostHashTableName);
 										 
 										 units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newInstanceFieldRef(newClassRef, newref.makeRef())), u); //a bit of a redundant stmt but here for now
 
@@ -569,7 +574,7 @@ units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef
                                      }else{
 										 System.out.println("building an instance field (DEF) access in a non added meethod");
                                          SootClass newClass = redefToNewClassMap.get(redefinition);
-                                         Local newClassRef = lookup(newClass, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase());
+                                         Local newClassRef = lookup(newClass, newClass, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase(), ogToHostHashTableName);
 										 
                                          units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(newClassRef, newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
 									 }
@@ -621,11 +626,11 @@ units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef
 	}
 
 	private boolean containsUse(Unit u, SootField ref){
-		System.out.println("starting use check");
+		//System.out.println("starting use check");
 		for(ValueBox value : u.getUseBoxes()){
-			System.out.println(value.getValue());
-			System.out.println(value.getValue().equivHashCode());
-			System.out.println(ref.equivHashCode());
+			//System.out.println(value.getValue());
+			//System.out.println(value.getValue().equivHashCode());
+			//System.out.println(ref.equivHashCode());
 			if(value.getValue().equivHashCode() == ref.equivHashCode()){
 				return true;
 			}
@@ -695,10 +700,10 @@ units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef
         units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(newclassref, newClass.getMethod("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())), placementPoint);
 
 
-               units.insertBefore(Jimple.v().newAssignStmt(hashtableOGToHost, Jimple.v().newStaticFieldRef(newClass.getFieldByName("originalToHostHashTable").makeRef())), placementPoint);
+               units.insertBefore(Jimple.v().newAssignStmt(hashtableOGToHost, Jimple.v().newStaticFieldRef(newClass.getFieldByName(ogToHostHashTableName).makeRef())), placementPoint);
                units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(hashtableOGToHost, hashtablePut, Arrays.asList(new Value[]{thisref, newclassref}))), placementPoint);
 
-               units.insertBefore(Jimple.v().newAssignStmt(hashtableHostToOG, Jimple.v().newStaticFieldRef(newClass.getFieldByName("hostToOriginalHashTable").makeRef())), placementPoint);
+               units.insertBefore(Jimple.v().newAssignStmt(hashtableHostToOG, Jimple.v().newStaticFieldRef(newClass.getFieldByName(hostToOgHashTableName).makeRef())), placementPoint);
         units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(hashtableHostToOG, hashtablePut, Arrays.asList(new Value[]{newclassref, thisref}))), placementPoint);
                
                
@@ -707,28 +712,63 @@ units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef
 	/*
 	 * Builds a lookup of a object
 	 * referring to some redefinition class
-	 * mapped to its host
+	 * mapped to its host or vise versa
 	 */
-	private Local lookup(SootClass newClass, Body body, PatchingChain<Unit> units, Unit insertBeforeHere, Value baseOfOriginalStmt){
+	private Local lookup(SootClass newClass, SootClass classToMakeRefOf, Body body, PatchingChain<Unit> units, Unit insertBeforeHere, Value baseOfOriginalStmt, String whichTableToUse){
 		
-		Local newClassRef = Jimple.v().newLocal("newClassRef", newClass.getType());
-		body.getLocals().add(newClassRef);
+		Local classToMakeRefOfRef = Jimple.v().newLocal("newClassRef", classToMakeRefOf.getType());
+		body.getLocals().add(classToMakeRefOfRef);
 		Local objecttemp = Jimple.v().newLocal("objecttemp", RefType.v("java.lang.Object"));
 		body.getLocals().add(objecttemp);
 		Local HT = Jimple.v().newLocal("HTFieldTemp", RefType.v("java.util.Hashtable"));
 		body.getLocals().add(HT);
 
 
-		units.insertBefore(Jimple.v().newAssignStmt(HT, Jimple.v().newStaticFieldRef(newClass.getFieldByName("originalToHostHashTable").makeRef())), insertBeforeHere);
+		units.insertBefore(Jimple.v().newAssignStmt(HT, Jimple.v().newStaticFieldRef(newClass.getFieldByName(whichTableToUse).makeRef())), insertBeforeHere);
 		
 		SootMethodRef mapGetter = Scene.v().getMethod("<java.util.Hashtable: java.lang.Object get(java.lang.Object)>").makeRef();
 		units.insertBefore(Jimple.v().newAssignStmt(objecttemp, Jimple.v().newVirtualInvokeExpr(HT, mapGetter, Arrays.asList( new Value[]{baseOfOriginalStmt}))), insertBeforeHere);
 
-		units.insertBefore(Jimple.v().newAssignStmt(newClassRef, Jimple.v().newCastExpr(objecttemp, newClass.getType())), insertBeforeHere);
+		units.insertBefore(Jimple.v().newAssignStmt(classToMakeRefOfRef, Jimple.v().newCastExpr(objecttemp, classToMakeRefOf.getType())), insertBeforeHere);
 
-		return newClassRef;
+		return classToMakeRefOfRef;
 		
 	}
 
+	private void fixFieldRefsInAddedMethods(SootClass redefinition, List<SootMethod> addedMethods){
+		SootClass newClass = redefToNewClassMap.get(redefinition);
 
+		for(SootMethod m : addedMethods){
+			Body body = m.retrieveActiveBody();
+            PatchingChain<Unit> units = body.getUnits();
+            Iterator<Unit> it = units.snapshotIterator();
+
+            while (it.hasNext()) {
+
+                Unit u = it.next();
+                Stmt s = (Stmt)u;
+                if(s.containsFieldRef()){
+                    SootField ref = s.getFieldRef().getField();
+					//the reference is for an instance field in the redefinition class 
+					if(!ref.isStatic() && redefinition.getField(ref.getName(), ref.getType()) != null){
+
+
+						System.out.println("doing a field ref replace: " + ref + " --->" );
+						System.out.println("in this statement: "+ s);
+
+						
+						ValueBox fieldref = s.getFieldRefBox();
+							
+						Local redefinitionClassRef = lookup(newClass, redefinition, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase(), hostToOgHashTableName);
+						
+						s.getFieldRefBox().setValue(Jimple.v().newInstanceFieldRef(redefinitionClassRef, ref.makeRef()));
+							
+						
+					}
+				}
+			}
+		}
+	}
+
+	
 }
