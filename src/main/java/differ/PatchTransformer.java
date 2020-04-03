@@ -28,6 +28,7 @@ import soot.Unit;
 import soot.PatchingChain;
 import soot.util.HashChain;
 import soot.jimple.InvokeExpr;
+import soot.jimple.SpecialInvokeExpr;
 import soot.jimple.InstanceInvokeExpr;
 import soot.jimple.InstanceFieldRef;
 import soot.jimple.Stmt;
@@ -368,6 +369,9 @@ public class PatchTransformer{
 
 		//fix the field refs for "the other way" - refs using "this" that refer to a redef class, in an added method
 		fixFieldRefsInAddedMethods(redefinition, addedMethods);
+
+		//also fix the instance method refs that exist in stolen methods, since "this" is now wrong
+		fixMethodRefsInAddedMethods(redefinition, addedMethods);
 		
 	}
 
@@ -762,13 +766,58 @@ public class PatchTransformer{
 						Local redefinitionClassRef = lookup(newClass, redefinition, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase(), hostToOgHashTableName);
 						
 						s.getFieldRefBox().setValue(Jimple.v().newInstanceFieldRef(redefinitionClassRef, ref.makeRef()));
-							
-						
+													
 					}
 				}
 			}
 		}
 	}
 
+	/*
+	 * fixes insance self ref'd method accesses
+	 * in added methods, bc they will have been 
+	 * pointing to this which will need to be translated using the map
+	 */
+	private void fixMethodRefsInAddedMethods(SootClass redefinition, List<SootMethod> addedMethods){
+		CallGraph cg = Scene.v().getCallGraph();
+		List<SootMethod> redefMethods = redefinition.getMethods();
+		for(SootMethod m : addedMethods){
+		
+			Body body = m.retrieveActiveBody();
+			PatchingChain<Unit> units = body.getUnits();
+			Iterator<Unit> it = units.snapshotIterator();
+
+			while (it.hasNext()) {
+				
+				Unit u = it.next();
+				Stmt s = (Stmt)u;
+				Unit insnAfterInvokeInsn = units.getSuccOf(u);
+				
+				if (s.containsInvokeExpr()) {
+					InvokeExpr invokeExpr = s.getInvokeExpr();
+					if (invokeExpr instanceof InstanceInvokeExpr) {
+						Iterator targets = new Targets(explicitInvokesFilter.wrap(cg.edgesOutOf(s)));
+						List<SootMethod> methods = new ArrayList<SootMethod>();
+						while(targets.hasNext()){
+							SootMethod next = (SootMethod) targets.next();
+							if(redefMethods.contains(next)){
+								
+								SootClass newClass = redefToNewClassMap.get(redefinition);
+								Local redefintionClassRef = lookup(newClass, redefinition, body, units, u, ((InstanceInvokeExpr)invokeExpr).getBase(), hostToOgHashTableName);
+								if(invokeExpr instanceof SpecialInvokeExpr){
+									//cannot special invoke even if we make public
+									ValueBox invokebox = s.getInvokeExprBox();
+									invokebox.setValue(Jimple.v().newVirtualInvokeExpr(redefintionClassRef, next.makeRef(), invokeExpr.getArgs()));
+								} else {
+									((InstanceInvokeExpr)invokeExpr).setBase(redefintionClassRef);
+								}
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 	
 }
