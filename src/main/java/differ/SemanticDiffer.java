@@ -289,7 +289,10 @@ public class SemanticDiffer{
 	private static void writeNewClass(SootClass newClass){
 		try{
 			String fileName = SourceLocator.v().getFileNameFor(newClass, Options.output_format_class);
-			OutputStream streamOut = new JasminOutputStream(new FileOutputStream(fileName));
+			System.out.println("Writing to file using this directory and filename: "+ fileName);
+			File file = new File(fileName);
+			file.getParentFile().mkdirs();
+			OutputStream streamOut = new JasminOutputStream(new FileOutputStream(file));
 			PrintWriter writerOut = new PrintWriter(new OutputStreamWriter(streamOut));
 			
 			JasminClass jasminClass = new JasminClass(newClass);
