@@ -677,42 +677,48 @@ public class PatchTransformer{
         clinitUnits.addFirst(Jimple.v().newAssignStmt(hashtable, Jimple.v().newNewExpr(HT)));
        }
 
+	//we apply the same setup to all inits for the redef class
        public static void setupRedefInit(SootClass newClass, SootClass redef){
-               Body body = redef.getMethodByName("<init>").retrieveActiveBody();
-			   PatchingChain<Unit> units = body.getUnits();;
-               RefType HT = RefType.v("java.util.Hashtable");
-               Local hashtableOGToHost =  Jimple.v().newLocal("hashtableOGToHost", HT);
-               body.getLocals().add(hashtableOGToHost);
-               Local hashtableHostToOG =  Jimple.v().newLocal("hashtableHostToOG", HT);
-               body.getLocals().add(hashtableHostToOG);
-               Local newclassref = Jimple.v().newLocal("newclassref", redef.getType());
-               body.getLocals().add(newclassref);
-
-               Local thisref = body.getThisLocal();
-               Unit thisUnit = body.getThisUnit();
-			   Unit placementPoint = thisUnit;
-			   int numParamsToInit = redef.getMethodByName("<init>").getParameterCount();
-			   for(int i =0; i< numParamsToInit; i++){
-				   placementPoint = units.getSuccOf(placementPoint);
+		   List<SootMethod> allMethods = redef.getMethods();
+		   for(SootMethod m : allMethods){
+			   if(m.getName().equals("<init>")){
+				   Body body = m.retrieveActiveBody();
+				   PatchingChain<Unit> units = body.getUnits();
+				   RefType HT = RefType.v("java.util.Hashtable");
+				   Local hashtableOGToHost =  Jimple.v().newLocal("hashtableOGToHost", HT);
+				   body.getLocals().add(hashtableOGToHost);
+				   Local hashtableHostToOG =  Jimple.v().newLocal("hashtableHostToOG", HT);
+				   body.getLocals().add(hashtableHostToOG);
+				   Local newclassref = Jimple.v().newLocal("newclassref", redef.getType());
+				   body.getLocals().add(newclassref);
+				   
+				   Local thisref = body.getThisLocal();
+				   Unit thisUnit = body.getThisUnit();
+				   Unit placementPoint = thisUnit;
+				   int numParamsToInit = m.getParameterCount();
+				   for(int i =0; i< numParamsToInit; i++){
+					   placementPoint = units.getSuccOf(placementPoint);
+				   }
+				   placementPoint = units.getSuccOf(placementPoint); //once more bc the first statement in all inits is their super
+				   placementPoint = units.getSuccOf(placementPoint); //just one more, since this is the insn AFTER super.init, and we're placing our hashtable inits on top of this ref
+				   
+				   
+				   SootMethodRef hashtablePut = Scene.v().getMethod("<java.util.Hashtable: java.lang.Object put(java.lang.Object,java.lang.Object)>").makeRef();
+				   units.insertBefore(Jimple.v().newAssignStmt(newclassref, Jimple.v().newNewExpr(newClass.getType())), placementPoint);
+				   units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(newclassref, newClass.getMethod("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())), placementPoint);
+				   
+				   
+				   units.insertBefore(Jimple.v().newAssignStmt(hashtableOGToHost, Jimple.v().newStaticFieldRef(newClass.getFieldByName(ogToHostHashTableName).makeRef())), placementPoint);
+				   units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(hashtableOGToHost, hashtablePut, Arrays.asList(new Value[]{thisref, newclassref}))), placementPoint);
+				   
+				   units.insertBefore(Jimple.v().newAssignStmt(hashtableHostToOG, Jimple.v().newStaticFieldRef(newClass.getFieldByName(hostToOgHashTableName).makeRef())), placementPoint);
+				   units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(hashtableHostToOG, hashtablePut, Arrays.asList(new Value[]{newclassref, thisref}))), placementPoint);
+				   
 			   }
-			   placementPoint = units.getSuccOf(placementPoint); //once more bc the first statement in all inits is their super
-			   placementPoint = units.getSuccOf(placementPoint); //just one more, since this is the insn AFTER super.init, and we're placing our hashtable inits on top of this ref
-			   
-
-               SootMethodRef hashtablePut = Scene.v().getMethod("<java.util.Hashtable: java.lang.Object put(java.lang.Object,java.lang.Object)>").makeRef();
-               units.insertBefore(Jimple.v().newAssignStmt(newclassref, Jimple.v().newNewExpr(newClass.getType())), placementPoint);
-        units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(newclassref, newClass.getMethod("<init>", Arrays.asList(new Type[]{}), VoidType.v()).makeRef())), placementPoint);
-
-
-               units.insertBefore(Jimple.v().newAssignStmt(hashtableOGToHost, Jimple.v().newStaticFieldRef(newClass.getFieldByName(ogToHostHashTableName).makeRef())), placementPoint);
-               units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(hashtableOGToHost, hashtablePut, Arrays.asList(new Value[]{thisref, newclassref}))), placementPoint);
-
-               units.insertBefore(Jimple.v().newAssignStmt(hashtableHostToOG, Jimple.v().newStaticFieldRef(newClass.getFieldByName(hostToOgHashTableName).makeRef())), placementPoint);
-        units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(hashtableHostToOG, hashtablePut, Arrays.asList(new Value[]{newclassref, thisref}))), placementPoint);
-               
-               
-       }
-
+		   }
+	   }
+				   
+				   
 	/*
 	 * Builds a lookup of a object
 	 * referring to some redefinition class
