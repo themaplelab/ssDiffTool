@@ -80,17 +80,20 @@ public class PatchTransformer{
 		for(SootMethod m : addedMethods){
 			SootMethodRef oldRef = m.makeRef();
 			redefinition.removeMethod(m);
-			 if(m.isPrivate()){
-				 //clear private, set protected                                                                           
-				 m.setModifiers((m.getModifiers()&(~Modifier.PRIVATE)) | Modifier.PROTECTED);
-			 }
-			redefToNewClassMap.get(redefinition).addMethod(m);
-			oldMethodToNew.put(oldRef, m.makeRef());
-			newMethods.add(m);
+			//dont want to steal the static initializer, will construct it later in newclass
+			if(!m.getName().equals("<clinit>")){
+				if(m.isPrivate()){
+					//clear private, set protected                                                                           
+					m.setModifiers((m.getModifiers()&(~Modifier.PRIVATE)) | Modifier.PROTECTED);
+				}
+				redefToNewClassMap.get(redefinition).addMethod(m);
+				oldMethodToNew.put(oldRef, m.makeRef());
+				newMethods.add(m);
+			}
+			System.out.println("THISIS METHOD MAP");
+			System.out.println(oldMethodToNew);
+			System.out.println("These are the new methods list: "+ newMethods);
 		}
-		System.out.println("THISIS METHOD MAP");
-		System.out.println(oldMethodToNew);
-		System.out.println("These are the new methods list: "+ newMethods);
 	}
 
 	//checks all of the provided methods for method refs that need fixing
@@ -498,13 +501,55 @@ public class PatchTransformer{
 						//must steal initialization if the field is static
 						// is the second check even needed?
 						if(m.getName().equals("<clinit>") && ref.isStatic()){
-							units.remove(u);
 							SootClass newClass = redefToNewClassMap.get(redefinition);
 							createStaticInitializer(newClass);
 							System.out.println("This is wahts in the box atm: " + s.getFieldRefBox().getValue());
 							s.getFieldRefBox().setValue(Jimple.v().newStaticFieldRef(oldFieldToNew.get(ref).makeRef()));
-							newClass.getMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v()).retrieveActiveBody().getUnits().addFirst(u);
-
+							SootMethod clinit = newClass.getMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
+							clinit.retrieveActiveBody().getUnits().addFirst(u);
+							Chain<Local> originalClinitLocals = m.retrieveActiveBody().getLocals();
+							List<Local> relevantLocals = new ArrayList<Local>();
+							List<Local> stolenLocals = new ArrayList<Local>();
+							for(ValueBox value : u.getUseAndDefBoxes()){
+								//if(originalClinitLocals.contains(value.getValue())){
+								if(value.getValue() instanceof Local){
+									System.out.println("Stealing this local: "+ value.getValue());
+									clinit.retrieveActiveBody().getLocals().add((Local)value.getValue());
+									relevantLocals.add((Local)value.getValue());
+									stolenLocals.add((Local)value.getValue());
+								}
+							}
+							//walk backwards stealing relevant statements
+							Unit first = units.getFirst();
+							System.out.println("This is the first : "+ first);
+							Unit pointer = u;
+							if(u != first){
+								Unit pred = units.getPredOf(u);
+								while(pointer != first){
+									for(ValueBox value : u.getUseAndDefBoxes()){
+										if(value.getValue() instanceof Local && relevantLocals.contains((Local)value.getValue())){
+											clinit.retrieveActiveBody().getUnits().insertBefore(pred, pointer);
+											
+											for(ValueBox predvalue : pred.getUseAndDefBoxes()){
+												if(predvalue.getValue() instanceof Local){
+													System.out.println("Stealing this local: "+ predvalue.getValue());
+													//if we have not already stolen this local, steal it
+													if(!stolenLocals.contains((Local)predvalue.getValue())){
+														clinit.retrieveActiveBody().getLocals().add((Local)predvalue.getValue());
+														relevantLocals.add((Local)predvalue.getValue());
+														stolenLocals.add((Local)predvalue.getValue());
+													}
+												}
+											}
+										}
+									}
+									pointer = pred;
+									pred = units.getPredOf(pred);
+									units.remove(pointer);
+								}
+							}
+							units.remove(u);
+							
 						}else {
 							ValueBox fieldref = s.getFieldRefBox();
 							if(u.getUseBoxes().contains(fieldref)){
