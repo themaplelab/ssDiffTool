@@ -589,9 +589,9 @@ public class PatchTransformer{
 
 									 }
 
-									  s.getFieldRefBox().setValue(tmpRef);
-									 
-								 }
+								}
+								s.getFieldRefBox().setValue(tmpRef);
+								
 								 
 							}
 
@@ -804,12 +804,13 @@ public class PatchTransformer{
                 Stmt s = (Stmt)u;
                 if(s.containsFieldRef()){
                     SootField ref = s.getFieldRef().getField();
-					//the reference is for an instance field in the redefinition class 
-					if(!ref.isStatic() && redefinition.getField(ref.getName(), ref.getType()) != null){
+					//the reference is for an instance field in the redefinition class and is not an added field
+					//shouldnt have to check this last one... but?
+					if(!ref.isStatic() && (redefinition.getFieldUnsafe(ref.getName(), ref.getType()) != null) && (newClass.getFieldUnsafe(ref.getName(), ref.getType()) == null)){
 
 
 						System.out.println("doing a field ref replace: " + ref + " --->" );
-						System.out.println("in this statement: "+ s);
+						System.out.println("in fixFieldRefsInAddedMethods, in this statement: "+ s);
 
 						
 						ValueBox fieldref = s.getFieldRefBox();
