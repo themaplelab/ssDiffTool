@@ -510,14 +510,13 @@ public class PatchTransformer{
 							Chain<Local> originalClinitLocals = m.retrieveActiveBody().getLocals();
 							List<Local> relevantLocals = new ArrayList<Local>();
 							List<Local> stolenLocals = new ArrayList<Local>();
-							for(ValueBox value : u.getUseAndDefBoxes()){
-								//if(originalClinitLocals.contains(value.getValue())){
-								if(value.getValue() instanceof Local){
-									System.out.println("Stealing this local: "+ value.getValue());
-									clinit.retrieveActiveBody().getLocals().add((Local)value.getValue());
-									relevantLocals.add((Local)value.getValue());
-									stolenLocals.add((Local)value.getValue());
-								}
+							List<Local> inStmt = extractLocals(u);
+							for(Local l : inStmt){
+								System.out.println("Stealing this local: "+ l);
+								clinit.retrieveActiveBody().getLocals().add(l);
+								relevantLocals.add(l);
+								stolenLocals.add(l);
+								
 							}
 							//walk backwards stealing relevant statements
 							Unit first = units.getFirst();
@@ -525,24 +524,27 @@ public class PatchTransformer{
 							Unit pointer = u;
 							if(u != first){
 								Unit pred = units.getPredOf(u);
-								while(pointer != first){
-									for(ValueBox value : u.getUseAndDefBoxes()){
-										if(value.getValue() instanceof Local && relevantLocals.contains((Local)value.getValue())){
+								while(pred != first){
+									boolean relevantStmt = false;
+									List<Local> inPrevStmt = extractLocals(pred);
+									for(Local l : inPrevStmt){
+										if(relevantLocals.contains(l) && !(clinit.retrieveActiveBody().getUnits().contains(pred))){
+											System.out.println("Stealing this statement: "+ pred);
 											clinit.retrieveActiveBody().getUnits().insertBefore(pred, pointer);
-											
-											for(ValueBox predvalue : pred.getUseAndDefBoxes()){
-												if(predvalue.getValue() instanceof Local){
-													System.out.println("Stealing this local: "+ predvalue.getValue());
-													//if we have not already stolen this local, steal it
-													if(!stolenLocals.contains((Local)predvalue.getValue())){
-														clinit.retrieveActiveBody().getLocals().add((Local)predvalue.getValue());
-														relevantLocals.add((Local)predvalue.getValue());
-														stolenLocals.add((Local)predvalue.getValue());
-													}
-												}
+											relevantStmt = true;
+										}
+										if(relevantStmt){
+											//if we have not already stolen this local, steal it
+											if(!stolenLocals.contains(l)){
+												System.out.println("Stealing this local: "+ l +" from this statement: "+ pred);
+												clinit.retrieveActiveBody().getLocals().add(l);
+												relevantLocals.add(l);
+												stolenLocals.add(l);
 											}
 										}
+										
 									}
+								
 									pointer = pred;
 									pred = units.getPredOf(pred);
 									units.remove(pointer);
@@ -639,6 +641,34 @@ public class PatchTransformer{
 		}
 	}
 
+	private static List<Local> extractLocals(Unit u){
+		List<Local> locals = new ArrayList<Local>();
+		for(ValueBox valuebox : u.getUseAndDefBoxes()){
+			Value value = valuebox.getValue();
+			System.out.println("Looking at this valuebox: " + valuebox + "in this statment: "+ u + " with this getvalue: "+ value);
+			if(value instanceof Local){
+				locals.add((Local)value);
+				
+			} else if( value instanceof InvokeExpr){
+				if (value instanceof InstanceInvokeExpr){
+					//could it not be a local somehow?
+					if(((InstanceInvokeExpr)value).getBase() instanceof Local){
+						locals.add((Local)((InstanceInvokeExpr)value).getBase());
+					}
+				}
+				List<Value> invokeArgs = ((InvokeExpr)value).getArgs();
+				for(Value arg : invokeArgs){
+					if(arg instanceof Local){
+						 locals.add((Local)arg);
+					}
+				}
+			}
+		}
+		System.out.println("Found these locals: "+ locals);
+		return locals;
+	}
+
+	
 	public static void createInitializer(SootClass newClass){
 		//only want to create one initialization function
 		 if(newClass.getMethodUnsafe("<init>", Arrays.asList(new Type[]{}), VoidType.v()) == null){
