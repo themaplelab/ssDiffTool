@@ -163,6 +163,7 @@ public class PatchTransformer{
 								System.out.println("This target is one we are fixing: "+ target);
 								constructGuard(target, body , units, insnAfterInvokeInsn, u);
 							}
+							System.out.println("Removing statement: "+ u);
 							units.remove(u);
 								//now possibly replace the static method ref here as well
 								//if(oldToNewMethod.get(invokeExpr.getMethodRef()) != null){
@@ -260,6 +261,7 @@ public class PatchTransformer{
 		System.out.println("replacing a method call in this statement: "+ (Stmt)currentInsn);
 		System.out.println(invokeExpr.getMethodRef() + " ---> " + newClassMethod);
 		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(newClassRef, newClassMethod, invokeExpr.getArgs())) , currentInsn);
+		System.out.println("Removing statement: "+ currentInsn);
 		units.remove(currentInsn);
 	}
 
@@ -480,6 +482,7 @@ public class PatchTransformer{
 
 				Unit u = it.next();
 				Stmt s = (Stmt)u;
+				System.out.println("observing this statement: "+ s);
 				if(s.containsFieldRef()){
 					SootField ref = s.getFieldRef().getField();
 					SootField newref = oldFieldToNew.get(ref);
@@ -506,7 +509,11 @@ public class PatchTransformer{
 							System.out.println("This is wahts in the box atm: " + s.getFieldRefBox().getValue());
 							s.getFieldRefBox().setValue(Jimple.v().newStaticFieldRef(oldFieldToNew.get(ref).makeRef()));
 							SootMethod clinit = newClass.getMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
-							clinit.retrieveActiveBody().getUnits().addFirst(u);
+							PatchingChain<Unit> clinitUnits = clinit.retrieveActiveBody().getUnits();
+							clinitUnits.addFirst(u);
+							System.out.println("-----------------------------");
+							System.out.println("Stealing this statement: "+ u);
+							System.out.println("This is the pred of the first interesting statement: "+ units.getPredOf(units.getPredOf(u)));
 							Chain<Local> originalClinitLocals = m.retrieveActiveBody().getLocals();
 							List<Local> relevantLocals = new ArrayList<Local>();
 							List<Local> stolenLocals = new ArrayList<Local>();
@@ -518,22 +525,30 @@ public class PatchTransformer{
 								stolenLocals.add(l);
 								
 							}
+							System.out.println("-----------------------------");
 							//walk backwards stealing relevant statements
 							Unit first = units.getFirst();
+							Unit stop = units.getSuccOf(first);
 							System.out.println("This is the first : "+ first);
-							Unit pointer = u;
+							Unit pointer = u; //keeps track of statements to rm from redef clinit
 							if(u != first){
 								Unit pred = units.getPredOf(u);
-								while(pred != first){
+								while(pred != stop){
 									boolean relevantStmt = false;
+									System.out.println("-----------------------------");
+									System.out.println("Extracting from this statement: "+ pred);
 									List<Local> inPrevStmt = extractLocals(pred);
-									for(Local l : inPrevStmt){
-										if(relevantLocals.contains(l) && !(clinit.retrieveActiveBody().getUnits().contains(pred))){
-											System.out.println("Stealing this statement: "+ pred);
-											clinit.retrieveActiveBody().getUnits().insertBefore(pred, pointer);
-											relevantStmt = true;
-										}
-										if(relevantStmt){
+									List<Local> intersection = new ArrayList<Local>();
+									intersection.addAll(inPrevStmt);
+									intersection.retainAll(relevantLocals);
+									if(intersection.size() != 0){
+										System.out.println("Stealing this statement: "+ pred);
+										clinitUnits.addFirst(pred);
+										relevantStmt = true;
+									
+										for(Local l : inPrevStmt){
+											//										if(relevantLocals.contains(l) && !(clinit.retrieveActiveBody().getUnits().contains(pred))){
+										
 											//if we have not already stolen this local, steal it
 											if(!stolenLocals.contains(l)){
 												System.out.println("Stealing this local: "+ l +" from this statement: "+ pred);
@@ -542,14 +557,59 @@ public class PatchTransformer{
 												stolenLocals.add(l);
 											}
 										}
-										
+										System.out.println("-----------------------------");
 									}
-								
+									
 									pointer = pred;
 									pred = units.getPredOf(pred);
-									units.remove(pointer);
+									
+									System.out.println("-----------------------------");
+									System.out.println("This is pointer: "+ pointer+" and this is pred: "+ pred);
+									System.out.println("-----------------------------");
+								}
+								//then go forward. this is not ideal but necessary
+								pointer = first;
+								Unit clinitPtr = clinitUnits.getFirst();
+								while(pointer != u){
+									boolean relevantStmtF = false;
+									System.out.println("(FORWARD) this is pointer: "+ pointer+ " and this is clinitptr: "+ clinitPtr);
+									System.out.println("and it is already contained: "+ clinitUnits.contains(pointer));
+									if(!clinitUnits.contains(pointer)){
+										List<Local> inPrevStmt = extractLocals(pointer);
+										List<Local> intersection = new ArrayList<Local>();
+										intersection.addAll(inPrevStmt);
+										intersection.retainAll(relevantLocals);
+										System.out.println("(FORWARD) intersection : "+ intersection);
+										if(intersection.size() != 0){
+											System.out.println("(FORWARD) Stealing this statement: "+ pointer);
+											clinitUnits.insertBefore(pointer, clinitPtr);
+											relevantStmtF = true;
+											
+											for(Local l : inPrevStmt){
+												if(!stolenLocals.contains(l)){
+													System.out.println("(FORWARD) Stealing this local: "+ l +" from this statement: "+ pointer);
+													clinit.retrieveActiveBody().getLocals().add(l);
+													relevantLocals.add(l);
+													stolenLocals.add(l);
+												}
+											}
+										}
+									}
+									
+									pointer = units.getSuccOf(pointer);
+									Unit prev = units.getPredOf(pointer);
+									if(clinitUnits.contains(prev)){
+                                        System.out.println("Removing statement: "+ prev);
+										units.remove(prev);
+										if(!relevantStmtF){
+											clinitPtr = clinitUnits.getSuccOf(clinitPtr);
+										}
+									}
 								}
 							}
+							System.out.println("Removing statement: "+ first);
+                            units.remove(first);
+							System.out.println("Removing statement: "+ u);
 							units.remove(u);
 							
 						}else {
@@ -592,6 +652,7 @@ public class PatchTransformer{
 									 }
 
 								}
+								System.out.println("This is wahts in the box atm: " + s.getFieldRefBox().getValue());
 								s.getFieldRefBox().setValue(tmpRef);
 								
 								 
@@ -629,7 +690,8 @@ public class PatchTransformer{
 										 
                                          units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(newClassRef, newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
 									 }
-								}	 
+								}
+								System.out.println("Removing statement: "+ u);
 								units.remove(u);
 								
 							}
@@ -646,19 +708,19 @@ public class PatchTransformer{
 		for(ValueBox valuebox : u.getUseAndDefBoxes()){
 			Value value = valuebox.getValue();
 			System.out.println("Looking at this valuebox: " + valuebox + "in this statment: "+ u + " with this getvalue: "+ value);
-			if(value instanceof Local){
+			if(value instanceof Local && !locals.contains((Local)value)){
 				locals.add((Local)value);
 				
 			} else if( value instanceof InvokeExpr){
 				if (value instanceof InstanceInvokeExpr){
 					//could it not be a local somehow?
-					if(((InstanceInvokeExpr)value).getBase() instanceof Local){
+					if(((InstanceInvokeExpr)value).getBase() instanceof Local && !locals.contains((Local)((InstanceInvokeExpr)value).getBase())){
 						locals.add((Local)((InstanceInvokeExpr)value).getBase());
 					}
 				}
 				List<Value> invokeArgs = ((InvokeExpr)value).getArgs();
 				for(Value arg : invokeArgs){
-					if(arg instanceof Local){
+					if(arg instanceof Local && !locals.contains((Local)arg)){
 						 locals.add((Local)arg);
 					}
 				}
@@ -846,7 +908,8 @@ public class PatchTransformer{
 						ValueBox fieldref = s.getFieldRefBox();
 							
 						Local redefinitionClassRef = lookup(newClass, redefinition, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase(), hostToOgHashTableName);
-						
+
+						System.out.println("This is wahts in the box atm: " + s.getFieldRefBox().getValue());
 						s.getFieldRefBox().setValue(Jimple.v().newInstanceFieldRef(redefinitionClassRef, ref.makeRef()));
 													
 					}
@@ -889,6 +952,7 @@ public class PatchTransformer{
 								if(invokeExpr instanceof SpecialInvokeExpr){
 									//cannot special invoke even if we make public
 									ValueBox invokebox = s.getInvokeExprBox();
+									System.out.println("This is wahts in the box atm: " + s.getFieldRefBox().getValue());
 									invokebox.setValue(Jimple.v().newVirtualInvokeExpr(redefintionClassRef, next.makeRef(), invokeExpr.getArgs()));
 								} else {
 									((InstanceInvokeExpr)invokeExpr).setBase(redefintionClassRef);
