@@ -509,109 +509,41 @@ public class PatchTransformer{
 							System.out.println("This is wahts in the box atm: " + s.getFieldRefBox().getValue());
 							s.getFieldRefBox().setValue(Jimple.v().newStaticFieldRef(oldFieldToNew.get(ref).makeRef()));
 							SootMethod clinit = newClass.getMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
-							PatchingChain<Unit> clinitUnits = clinit.retrieveActiveBody().getUnits();
+							Body clinitBody = clinit.retrieveActiveBody();
+							PatchingChain<Unit> clinitUnits = clinitBody.getUnits();
+
 							clinitUnits.addFirst(u);
 							System.out.println("-----------------------------");
 							System.out.println("Stealing this statement: "+ u);
-							System.out.println("This is the pred of the first interesting statement: "+ units.getPredOf(units.getPredOf(u)));
-							Chain<Local> originalClinitLocals = m.retrieveActiveBody().getLocals();
+							System.out.println("-----------------------------");
+							
 							List<Local> relevantLocals = new ArrayList<Local>();
 							List<Local> stolenLocals = new ArrayList<Local>();
+							List<Unit> changeSet = new ArrayList<Unit>();
+							List<Unit> stolenStmts = new ArrayList<Unit>();
+
+
+							stolenStmts.add(u);
+							//just to get us started
 							List<Local> inStmt = extractLocals(u);
-							for(Local l : inStmt){
-								System.out.println("Stealing this local: "+ l);
-								clinit.retrieveActiveBody().getLocals().add(l);
-								relevantLocals.add(l);
-								stolenLocals.add(l);
-								
-							}
-							System.out.println("-----------------------------");
-							//walk backwards stealing relevant statements
-							Unit first = units.getFirst();
-							Unit stop = units.getSuccOf(first);
-							System.out.println("This is the first : "+ first);
-							Unit pointer = u; //keeps track of statements to rm from redef clinit
-							if(u != first){
-								Unit pred = units.getPredOf(u);
-								while(pred != stop){
-									boolean relevantStmt = false;
-									System.out.println("-----------------------------");
-									System.out.println("Extracting from this statement: "+ pred);
-									List<Local> inPrevStmt = extractLocals(pred);
-									List<Local> intersection = new ArrayList<Local>();
-									intersection.addAll(inPrevStmt);
-									intersection.retainAll(relevantLocals);
-									if(intersection.size() != 0){
-										System.out.println("Stealing this statement: "+ pred);
-										clinitUnits.addFirst(pred);
-										relevantStmt = true;
-									
-										for(Local l : inPrevStmt){
-											//										if(relevantLocals.contains(l) && !(clinit.retrieveActiveBody().getUnits().contains(pred))){
-										
-											//if we have not already stolen this local, steal it
-											if(!stolenLocals.contains(l)){
-												System.out.println("Stealing this local: "+ l +" from this statement: "+ pred);
-												clinit.retrieveActiveBody().getLocals().add(l);
-												relevantLocals.add(l);
-												stolenLocals.add(l);
-											}
-										}
-										System.out.println("-----------------------------");
-									}
-									
-									pointer = pred;
-									pred = units.getPredOf(pred);
-									
-									System.out.println("-----------------------------");
-									System.out.println("This is pointer: "+ pointer+" and this is pred: "+ pred);
-									System.out.println("-----------------------------");
-								}
-								//then go forward. this is not ideal but necessary
-								pointer = first;
-								Unit clinitPtr = clinitUnits.getFirst();
-								while(pointer != u){
-									boolean relevantStmtF = false;
-									System.out.println("(FORWARD) this is pointer: "+ pointer+ " and this is clinitptr: "+ clinitPtr);
-									System.out.println("and it is already contained: "+ clinitUnits.contains(pointer));
-									if(!clinitUnits.contains(pointer)){
-										List<Local> inPrevStmt = extractLocals(pointer);
-										List<Local> intersection = new ArrayList<Local>();
-										intersection.addAll(inPrevStmt);
-										intersection.retainAll(relevantLocals);
-										System.out.println("(FORWARD) intersection : "+ intersection);
-										if(intersection.size() != 0){
-											System.out.println("(FORWARD) Stealing this statement: "+ pointer);
-											clinitUnits.insertBefore(pointer, clinitPtr);
-											relevantStmtF = true;
-											
-											for(Local l : inPrevStmt){
-												if(!stolenLocals.contains(l)){
-													System.out.println("(FORWARD) Stealing this local: "+ l +" from this statement: "+ pointer);
-													clinit.retrieveActiveBody().getLocals().add(l);
-													relevantLocals.add(l);
-													stolenLocals.add(l);
-												}
-											}
-										}
-									}
-									
-									pointer = units.getSuccOf(pointer);
-									Unit prev = units.getPredOf(pointer);
-									if(clinitUnits.contains(prev)){
-                                        System.out.println("Removing statement: "+ prev);
-										units.remove(prev);
-										if(!relevantStmtF){
-											clinitPtr = clinitUnits.getSuccOf(clinitPtr);
-										}
-									}
-								}
-							}
-							System.out.println("Removing statement: "+ first);
-                            units.remove(first);
-							System.out.println("Removing statement: "+ u);
-							units.remove(u);
+                            for(Local l : inStmt){
+                                System.out.println("Stealing this local: "+ l);
+                                clinitBody.getLocals().add(l);
+                                relevantLocals.add(l);
+                                stolenLocals.add(l);
+                            }
 							
+							//i guess this is where function passing is useful?
+							changeSet.addAll(backwardPass(relevantLocals, stolenLocals, stolenStmts, units , clinitUnits, clinitBody, u));
+							while(changeSet.size() != 0){ //alt forward until fixpoint
+								changeSet.clear();
+								changeSet.addAll(forwardPass(relevantLocals, stolenLocals, stolenStmts, units , clinitUnits, clinitBody, u));
+							}
+							for(Unit stolen : stolenStmts){
+								System.out.println("Removing statement: "+ stolen);
+								units.remove(stolen);
+							}
+									
 						}else {
 							ValueBox fieldref = s.getFieldRefBox();
 							if(u.getUseBoxes().contains(fieldref)){
@@ -703,6 +635,106 @@ public class PatchTransformer{
 		}
 	}
 
+		
+		
+
+
+	private static List<Unit> forwardPass(List<Local> relevantLocals, List<Local> stolenLocals, List<Unit> stolenStmts, PatchingChain<Unit> units, PatchingChain<Unit> clinitUnits, Body clinitBody , Unit u){
+		List<Unit> changeSet = new ArrayList<Unit>();
+		
+		Unit pointer = units.getFirst();
+		Unit clinitPtr = clinitUnits.getFirst();
+		while(pointer != u){
+			boolean relevantStmtF = false;
+			System.out.println("(FORWARD) this is pointer: "+ pointer+ " and this is clinitptr: "+ clinitPtr);
+			System.out.println("and it is already contained: "+ clinitUnits.contains(pointer));
+			if(!clinitUnits.contains(pointer)){
+				List<Local> inPrevStmt = extractLocals(pointer);
+				List<Local> intersection = new ArrayList<Local>();
+				intersection.addAll(inPrevStmt);
+				intersection.retainAll(relevantLocals);
+				System.out.println("(FORWARD) intersection : "+ intersection);
+				if(intersection.size() != 0){
+					System.out.println("(FORWARD) Stealing this statement: "+ pointer);
+					stolenStmts.add(pointer);
+					changeSet.add(pointer);
+					clinitUnits.insertBefore(pointer, clinitPtr);
+					relevantStmtF = true;
+					
+					for(Local l : inPrevStmt){
+						if(!stolenLocals.contains(l)){
+							System.out.println("(FORWARD) Stealing this local: "+ l +" from this statement: "+ pointer);
+							clinitBody.getLocals().add(l);
+							relevantLocals.add(l);
+							stolenLocals.add(l);
+						}
+					}
+				}
+			}
+			
+			pointer = units.getSuccOf(pointer);
+			Unit prev = units.getPredOf(pointer);
+			if(clinitUnits.contains(prev) && !relevantStmtF){
+				clinitPtr = clinitUnits.getSuccOf(clinitPtr);
+			}
+		}
+		return changeSet;
+}
+		
+										
+										
+	private static List<Unit> backwardPass(List<Local> relevantLocals, List<Local> stolenLocals, List<Unit> stolenStmts, PatchingChain<Unit> units, PatchingChain<Unit> clinitUnits, Body clinitBody, Unit u){
+
+		List<Unit> changeSet = new ArrayList<Unit>();
+		
+		System.out.println("-----------------------------");
+		//walk backwards stealing relevant statements                                               
+		Unit first = units.getFirst();
+		Unit stop = units.getSuccOf(first);
+		System.out.println("This is the first : "+ first);
+		Unit pointer = u; //keeps track of statements to rm from redef clinit                       
+		if(u != first){
+			Unit pred = units.getPredOf(u);
+			while(pred != stop){
+				boolean relevantStmt = false;
+				System.out.println("-----------------------------");
+				System.out.println("Extracting from this statement: "+ pred);
+				List<Local> inPrevStmt = extractLocals(pred);
+				List<Local> intersection = new ArrayList<Local>();
+				intersection.addAll(inPrevStmt);
+				intersection.retainAll(relevantLocals);
+				if(intersection.size() != 0){
+					System.out.println("Stealing this statement: "+ pred);
+					stolenStmts.add(pred);
+					changeSet.add(pred);
+					clinitUnits.addFirst(pred);
+					relevantStmt = true;
+					for(Local l : inPrevStmt){
+						//                                      if(relevantLocals.contains(l) && !(clinit.retrieveActiveBody().getUnits().contains(pred))){                                                                
+					
+						//if we have not already stolen this local, steal it                        
+						if(!stolenLocals.contains(l)){
+							System.out.println("Stealing this local: "+ l +" from this statement: "	+ pred);
+							clinitBody.getLocals().add(l);
+							relevantLocals.add(l);
+							stolenLocals.add(l);
+						}
+					}
+					System.out.println("-----------------------------");
+				}
+				
+				pointer = pred;
+				pred = units.getPredOf(pred);
+				
+				System.out.println("-----------------------------");
+				System.out.println("This is pointer: "+ pointer+" and this is pred: "+ pred);
+				System.out.println("-----------------------------");
+			}
+			
+		}
+		return changeSet;
+	}
+		
 	private static List<Local> extractLocals(Unit u){
 		List<Local> locals = new ArrayList<Local>();
 		for(ValueBox valuebox : u.getUseAndDefBoxes()){
