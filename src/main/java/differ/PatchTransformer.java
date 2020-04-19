@@ -365,6 +365,9 @@ public class PatchTransformer{
 			fixFields(field, redefinition);
 		}
 
+		//bit weird to put it here, but must be called before field removal?
+		fixClinit(redefinition);
+		
 		fixFieldRefs(redefinition, addedMethods);
 
 		for(SootField field : addedFields){
@@ -462,10 +465,81 @@ public class PatchTransformer{
 			fieldToSetter.put(field, newSetter);
         }
 
+	private void fixClinit(SootClass redefinition){
+        List<Local> relevantLocals = new ArrayList<Local>();
+        List<Unit> changeSet = new ArrayList<Unit>();
+        List<Unit> relevantStmts = new ArrayList<Unit>();
+
+		SootMethod clinitRedef = redefinition.getMethodUnsafe("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
+		if(clinitRedef != null){
+			SootClass newClass = redefToNewClassMap.get(redefinition);
+			createStaticInitializer(newClass);
+			
+			SootMethod clinitNew = newClass.getMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
+			Body clinitBody = clinitNew.retrieveActiveBody();
+			PatchingChain<Unit> newUnits = clinitBody.getUnits();
+			
+			Body redefBody = clinitRedef.retrieveActiveBody();
+			PatchingChain<Unit> redefUnits = redefBody.getUnits();
+			Iterator<Unit> it = redefUnits.snapshotIterator();
+			
+			//first pass, just find the field refs for the stolen fields first, and patch those up while at it.
+			while (it.hasNext()) {
+				Unit u = it.next();
+				Stmt s = (Stmt)u;
+				if(s.containsFieldRef()){
+					SootField ref = s.getFieldRef().getField();
+					SootField newref = oldFieldToNew.get(ref);
+					if(newref != null){
+						s.getFieldRefBox().setValue(Jimple.v().newStaticFieldRef(oldFieldToNew.get(ref).makeRef()));
+						relevantStmts.add(u);
+						relevantLocals.addAll(extractLocals(u));
+					}
+				}
+			}
+			
+			changeSet.addAll(forwardPass(relevantLocals, relevantStmts, redefUnits));
+			while(changeSet.size() != 0){ //loop until fixpoint									 
+				changeSet.clear();
+				changeSet.addAll(forwardPass(relevantLocals, relevantStmts, redefUnits));
+			}
+
+
+			//add an anchor nop
+			NopStmt nop = Jimple.v().newNopStmt();
+			newUnits.addFirst((Unit)nop);
+			Unit ptr = (Unit)nop;
+
+			//steal locals first
+			for(Local l : relevantLocals){
+				if(!clinitBody.getLocals().contains(l)){
+					System.out.println("Stealing this local: "+ l);
+					clinitBody.getLocals().add(l);
+				}
+			}
+			
+			//second pass is for stealing			
+			Iterator<Unit> itTwo = redefUnits.snapshotIterator();
+			while (itTwo.hasNext()) {
+				Unit u = itTwo.next();
+				Stmt s = (Stmt)u;
+				if(relevantStmts.contains(u)){
+					System.out.println("-----------------------------");
+					System.out.println("Stealing this statement: "+ u);
+					System.out.println("-----------------------------");
+					newUnits.insertAfter(u, ptr);
+					ptr = u;
+					redefUnits.remove(u);
+				}
+			}
+		}
+	}
+	
 
 	private void fixFieldRefs(SootClass redefinition, List<SootMethod> addedMethods){
 		for(SootMethod m : redefinition.getMethods()){
-			boolean addedMethod = false;
+			if(!m.getName().equals("<clinit>")){
+				boolean addedMethod = false;
 			if(addedMethods.contains(m)){
 				addedMethod = true;
 				System.out.println("Finding  field refs in AN ADDED METHOD: "+ m.getSignature());
@@ -482,7 +556,6 @@ public class PatchTransformer{
 
 				Unit u = it.next();
 				Stmt s = (Stmt)u;
-				System.out.println("observing this statement: "+ s);
 				if(s.containsFieldRef()){
 					SootField ref = s.getFieldRef().getField();
 					SootField newref = oldFieldToNew.get(ref);
@@ -501,239 +574,128 @@ public class PatchTransformer{
 					
 					if(newref != null){
 
-						//must steal initialization if the field is static
-						// is the second check even needed?
-						if(m.getName().equals("<clinit>") && ref.isStatic()){
-							SootClass newClass = redefToNewClassMap.get(redefinition);
-							createStaticInitializer(newClass);
-							System.out.println("This is wahts in the box atm: " + s.getFieldRefBox().getValue());
-							s.getFieldRefBox().setValue(Jimple.v().newStaticFieldRef(oldFieldToNew.get(ref).makeRef()));
-							SootMethod clinit = newClass.getMethod("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
-							Body clinitBody = clinit.retrieveActiveBody();
-							PatchingChain<Unit> clinitUnits = clinitBody.getUnits();
-
-							clinitUnits.addFirst(u);
-							System.out.println("-----------------------------");
-							System.out.println("Stealing this statement: "+ u);
-							System.out.println("-----------------------------");
+						ValueBox fieldref = s.getFieldRefBox();
+						if(u.getUseBoxes().contains(fieldref)){
 							
-							List<Local> relevantLocals = new ArrayList<Local>();
-							List<Local> stolenLocals = new ArrayList<Local>();
-							List<Unit> changeSet = new ArrayList<Unit>();
-							List<Unit> stolenStmts = new ArrayList<Unit>();
-
-
-							stolenStmts.add(u);
-							//just to get us started
-							List<Local> inStmt = extractLocals(u);
-                            for(Local l : inStmt){
-                                System.out.println("Stealing this local: "+ l);
-                                clinitBody.getLocals().add(l);
-                                relevantLocals.add(l);
-                                stolenLocals.add(l);
-                            }
+							SootMethod newAccessor = fieldToGetter.get(ref);
+							System.out.println("doing a field ref replace: " + ref + " --->" + newAccessor);
+							System.out.println("in this statement: "+ s);
+							Local tmpRef = Jimple.v().newLocal("tmpRef", ref.getType());
+							body.getLocals().add(tmpRef);
 							
-							//i guess this is where function passing is useful?
-							changeSet.addAll(backwardPass(relevantLocals, stolenLocals, stolenStmts, units , clinitUnits, clinitBody, u));
-							while(changeSet.size() != 0){ //alt forward until fixpoint
-								changeSet.clear();
-								changeSet.addAll(forwardPass(relevantLocals, stolenLocals, stolenStmts, units , clinitUnits, clinitBody, u));
-							}
-							for(Unit stolen : stolenStmts){
-								System.out.println("Removing statement: "+ stolen);
-								units.remove(stolen);
-							}
-									
-						}else {
-							ValueBox fieldref = s.getFieldRefBox();
-							if(u.getUseBoxes().contains(fieldref)){
-
-								SootMethod newAccessor = fieldToGetter.get(ref);
-								System.out.println("doing a field ref replace: " + ref + " --->" + newAccessor);
-								System.out.println("in this statement: "+ s);
-								Local tmpRef = Jimple.v().newLocal("tmpRef", ref.getType());
-								body.getLocals().add(tmpRef);
-
-								if(addedMethod){
-									 
-									 //the field ref is in a stolen method
-									 if(ref.isStatic()){
-										 System.out.println("building a static getter ref in added method");
-										 units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticInvokeExpr(newAccessor.makeRef())), u);
-									 }else{
-										 System.out.println("building an instance getter ref in added method");
-										 units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newVirtualInvokeExpr(body.getThisLocal(), newAccessor.makeRef())), u);
-									 }
-
-									 
-								 }else{
-									 SootClass newClass = redefToNewClassMap.get(redefinition);
-									 
-									 //the field ref is in the redefinition class still, or some other class  
-									 if(ref.isStatic()){
-										 System.out.println("building a static direct field (USE) access in non added method");
-										 units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef(newClass.getFieldByName(ref.getName()).makeRef())), u);
-										 
-                                     }else{
-										 System.out.println("building a an instance field (USE) access in a non added method");
-
-										 Local newClassRef = lookup(newClass, newClass, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase(), ogToHostHashTableName);
-										 
-										 units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newInstanceFieldRef(newClassRef, newref.makeRef())), u); //a bit of a redundant stmt but here for now
-
-									 }
-
-								}
-								System.out.println("This is wahts in the box atm: " + s.getFieldRefBox().getValue());
-								s.getFieldRefBox().setValue(tmpRef);
+							if(addedMethod){
 								
-								 
-							}
-
-
-
-
-							if(u.getDefBoxes().contains(fieldref)){
-
-								SootMethod newAccessor = fieldToSetter.get(ref);
-								System.out.println("doing a field ref replace: " + ref + " --->" + newAccessor);
-								System.out.println("in this statement: "+ s);
-								if(addedMethod){
-
-								//def boxes only to be nonempty on identitystmts or assignstmts
-									if(ref.isStatic()){
-										System.out.println("building a static setter ref in added method");
-										units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newStaticInvokeExpr(newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
-									}else{
-										System.out.println("building an instance setter ref in added method");
-										units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr((Local)((InstanceFieldRef)s.getFieldRef()).getBase(), newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
-									}
+								//the field ref is in a stolen method
+								if(ref.isStatic()){
+									System.out.println("building a static getter ref in added method");
+									units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticInvokeExpr(newAccessor.makeRef())), u);
 								}else{
-
-									 //the field ref is in the redefinition class still, or some other class       
-                                     if(ref.isStatic()){
-										 System.out.println("building an static field setter access in a non added meethod");
-                                         units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newStaticInvokeExpr(newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
-										 
-                                     }else{
-										 System.out.println("building an instance field (DEF) access in a non added meethod");
-                                         SootClass newClass = redefToNewClassMap.get(redefinition);
-                                         Local newClassRef = lookup(newClass, newClass, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase(), ogToHostHashTableName);
-										 
-                                         units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(newClassRef, newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
-									 }
+									System.out.println("building an instance getter ref in added method");
+									units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newVirtualInvokeExpr(body.getThisLocal(), newAccessor.makeRef())), u);
 								}
-								System.out.println("Removing statement: "+ u);
-								units.remove(u);
+								
+								
+								 }else{
+								SootClass newClass = redefToNewClassMap.get(redefinition);
+								
+								//the field ref is in the redefinition class still, or some other class  
+								if(ref.isStatic()){
+									System.out.println("building a static direct field (USE) access in non added method");
+									units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef(newClass.getFieldByName(ref.getName()).makeRef())), u);
+									
+								}else{
+									System.out.println("building a an instance field (USE) access in a non added method");
+									
+									Local newClassRef = lookup(newClass, newClass, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase(), ogToHostHashTableName);
+									
+									units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newInstanceFieldRef(newClassRef, newref.makeRef())), u); //a bit of a redundant stmt but here for now
+									
+								}
 								
 							}
+							System.out.println("This is wahts in the box atm: " + s.getFieldRefBox().getValue());
+							s.getFieldRefBox().setValue(tmpRef);
+							
+							
 						}
+
+
+
+
+						if(u.getDefBoxes().contains(fieldref)){
+							
+							SootMethod newAccessor = fieldToSetter.get(ref);
+							System.out.println("doing a field ref replace: " + ref + " --->" + newAccessor);
+							System.out.println("in this statement: "+ s);
+							if(addedMethod){
+								
+								//def boxes only to be nonempty on identitystmts or assignstmts
+								if(ref.isStatic()){
+									System.out.println("building a static setter ref in added method");
+									units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newStaticInvokeExpr(newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
+								}else{
+									System.out.println("building an instance setter ref in added method");
+									units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr((Local)((InstanceFieldRef)s.getFieldRef()).getBase(), newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
+								}
+							}else{
+								
+								//the field ref is in the redefinition class still, or some other class       
+								if(ref.isStatic()){
+									System.out.println("building an static field setter access in a non added meethod");
+									units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newStaticInvokeExpr(newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
+									
+								}else{
+									System.out.println("building an instance field (DEF) access in a non added meethod");
+									SootClass newClass = redefToNewClassMap.get(redefinition);
+									Local newClassRef = lookup(newClass, newClass, body, units, u, ((InstanceFieldRef)s.getFieldRef()).getBase(), ogToHostHashTableName);
+									
+									units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(newClassRef, newAccessor.makeRef(), Arrays.asList( new Value[]{((DefinitionStmt)s).getRightOp()}))) , u);
+								}
+							}
+							System.out.println("Removing statement: "+ u);
+							units.remove(u);
+							
+						}
+					}
+					
+				}
+			}
+		  }
+		}
+	}
+
+		
+		
+
+
+	private static List<Unit> forwardPass(List<Local> relevantLocals, List<Unit> relevantStmts, PatchingChain<Unit> units){
+		List<Unit> changeSet = new ArrayList<Unit>();
+		
+		Unit pointer = units.getFirst();
+		Unit last =  units.getLast();
+		while(pointer != last){
+			if(!relevantStmts.contains(pointer)){
+				List<Local> inStmt = extractLocals(pointer);
+				List<Local> intersection = new ArrayList<Local>();
+				intersection.addAll(inStmt);
+				intersection.retainAll(relevantLocals);
+				System.out.println("(FORWARD) intersection : "+ intersection);
+				if(intersection.size() != 0){
+					System.out.println("(FORWARD) found relevant statement: "+ pointer);
+					relevantStmts.add(pointer);
+					changeSet.add(pointer);
+					
+					for(Local l : inStmt){
+						System.out.println("(FORWARD) found this local: "+ l);
+						relevantLocals.add(l);
 						
 					}
 				}
 			}
-		}
-	}
-
-		
-		
-
-
-	private static List<Unit> forwardPass(List<Local> relevantLocals, List<Local> stolenLocals, List<Unit> stolenStmts, PatchingChain<Unit> units, PatchingChain<Unit> clinitUnits, Body clinitBody , Unit u){
-		List<Unit> changeSet = new ArrayList<Unit>();
-		
-		Unit pointer = units.getFirst();
-		Unit clinitPtr = clinitUnits.getFirst();
-		while(pointer != u){
-			boolean relevantStmtF = false;
-			System.out.println("(FORWARD) this is pointer: "+ pointer+ " and this is clinitptr: "+ clinitPtr);
-			System.out.println("and it is already contained: "+ clinitUnits.contains(pointer));
-			if(!clinitUnits.contains(pointer)){
-				List<Local> inPrevStmt = extractLocals(pointer);
-				List<Local> intersection = new ArrayList<Local>();
-				intersection.addAll(inPrevStmt);
-				intersection.retainAll(relevantLocals);
-				System.out.println("(FORWARD) intersection : "+ intersection);
-				if(intersection.size() != 0){
-					System.out.println("(FORWARD) Stealing this statement: "+ pointer);
-					stolenStmts.add(pointer);
-					changeSet.add(pointer);
-					clinitUnits.insertBefore(pointer, clinitPtr);
-					relevantStmtF = true;
-					
-					for(Local l : inPrevStmt){
-						if(!stolenLocals.contains(l)){
-							System.out.println("(FORWARD) Stealing this local: "+ l +" from this statement: "+ pointer);
-							clinitBody.getLocals().add(l);
-							relevantLocals.add(l);
-							stolenLocals.add(l);
-						}
-					}
-				}
-			}
-			
 			pointer = units.getSuccOf(pointer);
-			Unit prev = units.getPredOf(pointer);
-			if(clinitUnits.contains(prev) && !relevantStmtF){
-				clinitPtr = clinitUnits.getSuccOf(clinitPtr);
-			}
 		}
 		return changeSet;
 }
-		
-										
-										
-	private static List<Unit> backwardPass(List<Local> relevantLocals, List<Local> stolenLocals, List<Unit> stolenStmts, PatchingChain<Unit> units, PatchingChain<Unit> clinitUnits, Body clinitBody, Unit u){
-
-		List<Unit> changeSet = new ArrayList<Unit>();
-		
-		System.out.println("-----------------------------");
-		//walk backwards stealing relevant statements                                               
-		Unit first = units.getFirst();
-		Unit stop = units.getSuccOf(first);
-		System.out.println("This is the first : "+ first);
-		Unit pointer = u; //keeps track of statements to rm from redef clinit                       
-		if(u != first){
-			Unit pred = units.getPredOf(u);
-			while(pred != stop){
-				boolean relevantStmt = false;
-				System.out.println("-----------------------------");
-				System.out.println("Extracting from this statement: "+ pred);
-				List<Local> inPrevStmt = extractLocals(pred);
-				List<Local> intersection = new ArrayList<Local>();
-				intersection.addAll(inPrevStmt);
-				intersection.retainAll(relevantLocals);
-				if(intersection.size() != 0){
-					System.out.println("Stealing this statement: "+ pred);
-					stolenStmts.add(pred);
-					changeSet.add(pred);
-					clinitUnits.addFirst(pred);
-					relevantStmt = true;
-					for(Local l : inPrevStmt){
-						//                                      if(relevantLocals.contains(l) && !(clinit.retrieveActiveBody().getUnits().contains(pred))){                                                                
-					
-						//if we have not already stolen this local, steal it                        
-						if(!stolenLocals.contains(l)){
-							System.out.println("Stealing this local: "+ l +" from this statement: "	+ pred);
-							clinitBody.getLocals().add(l);
-							relevantLocals.add(l);
-							stolenLocals.add(l);
-						}
-					}
-					System.out.println("-----------------------------");
-				}
-				
-				pointer = pred;
-				pred = units.getPredOf(pred);
-				
-				System.out.println("-----------------------------");
-				System.out.println("This is pointer: "+ pointer+" and this is pred: "+ pred);
-				System.out.println("-----------------------------");
-			}
-			
-		}
-		return changeSet;
-	}
 		
 	private static List<Local> extractLocals(Unit u){
 		List<Local> locals = new ArrayList<Local>();
