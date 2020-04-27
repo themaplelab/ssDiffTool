@@ -813,6 +813,7 @@ public class PatchTransformer{
 		   List<SootMethod> allMethods = redef.getMethods();
 		   for(SootMethod m : allMethods){
 			   if(m.getName().equals("<init>")){
+				   boolean buildHere = true;
 				   Body body = m.retrieveActiveBody();
 				   PatchingChain<Unit> units = body.getUnits();
 				   RefType HT = RefType.v("java.util.Hashtable");
@@ -826,12 +827,23 @@ public class PatchTransformer{
 				   Local thisref = body.getThisLocal();
 				   Unit thisUnit = body.getThisUnit();
 				   Unit placementPoint = thisUnit;
-				   int numParamsToInit = m.getParameterCount();
-				   for(int i =0; i< numParamsToInit; i++){
-					   placementPoint = units.getSuccOf(placementPoint);
+				   
+				   //find the super init in this init
+				   Iterator<Unit> it = units.snapshotIterator();
+				   while(it.hasNext()){
+					   Unit u = it.next();
+					   Stmt s = (Stmt)u;
+					   if(s.containsInvokeExpr() && s.getInvokeExpr() instanceof SpecialInvokeExpr && ((SpecialInvokeExpr)s.getInvokeExpr()).getBase().equals(thisref) && s.getInvokeExpr().getMethodRef().getName().contains("<init>")){
+						   placementPoint = u;
+						   //actually dont want to build setup in init that calls other self initializer though
+						   if(s.getInvokeExpr().getMethodRef().getDeclaringClass().getName().equals(redef.getName())){
+							   buildHere = false;
+						   }
+						   break;
+					   }
 				   }
-				   placementPoint = units.getSuccOf(placementPoint); //once more bc the first statement in all inits is their super
-				   placementPoint = units.getSuccOf(placementPoint); //just one more, since this is the insn AFTER super.init, and we're placing our hashtable inits on top of this ref
+				   if(buildHere){
+					   placementPoint = units.getSuccOf(placementPoint); //just one more, since this is the insn AFTER super.init, and we're placing our hashtable inits on top of this ref
 				   
 				   
 				   SootMethodRef hashtablePut = Scene.v().getMethod("<java.util.Hashtable: java.lang.Object put(java.lang.Object,java.lang.Object)>").makeRef();
@@ -844,7 +856,7 @@ public class PatchTransformer{
 				   
 				   units.insertBefore(Jimple.v().newAssignStmt(hashtableHostToOG, Jimple.v().newStaticFieldRef(newClass.getFieldByName(hostToOgHashTableName).makeRef())), placementPoint);
 				   units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(hashtableHostToOG, hashtablePut, Arrays.asList(new Value[]{newclassref, thisref}))), placementPoint);
-				   
+				   }
 			   }
 		   }
 	   }
