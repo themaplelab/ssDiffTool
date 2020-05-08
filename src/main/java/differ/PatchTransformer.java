@@ -32,6 +32,7 @@ import soot.jimple.SpecialInvokeExpr;
 import soot.jimple.InstanceInvokeExpr;
 import soot.jimple.InstanceFieldRef;
 import soot.jimple.Stmt;
+import soot.jimple.AssignStmt;
 import soot.jimple.DefinitionStmt;
 import soot.jimple.NopStmt;
 import soot.Type;
@@ -360,14 +361,14 @@ public class PatchTransformer{
 		System.out.println("This is the (newToRedefClassMap: "+ newToRedefClassMap);
 	}
 	
-	public void transformFields(SootClass redefinition, List<SootField> addedFields, List<SootMethod> addedMethods){
+	public void transformFields(SootClass original, SootClass redefinition, List<SootField> addedFields, List<SootMethod> addedMethods){
 		for(SootField field : addedFields){
 			fixFields(field, redefinition);
 		}
 
 		//bit weird to put it here, but must be called before field removal?
 		fixClinit(redefinition);
-		
+
 		fixFieldRefs(redefinition, addedMethods);
 
 		for(SootField field : addedFields){
@@ -464,6 +465,61 @@ public class PatchTransformer{
 			newClass.addMethod(newSetter);
 			fieldToSetter.put(field, newSetter);
         }
+
+	//fixes the static field value changes, for preexisting fields
+	public void fixStaticFieldValueChanges(SootClass original, SootClass redefinition, List<SootField> addedFields){
+		boolean foundOne = false;
+		for(SootField field : redefinition.getFields()){
+			SootField originalfield = original.getField(field.getName(), field.getType());
+			System.out.println(field.isStatic());
+			System.out.println(addedFields.contains(field));
+			if(!addedFields.contains(field) && field.isStatic()){
+		
+				SootMethod clinitRedef = redefinition.getMethodUnsafe("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
+				SootMethod clinitOriginal = original.getMethodUnsafe("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
+
+				Iterator<Unit> redefit  = clinitRedef.retrieveActiveBody().getUnits().snapshotIterator();
+				Iterator<Unit>  originalit =clinitOriginal.retrieveActiveBody().getUnits().snapshotIterator();
+				Value redefDef = null;
+				Value originalDef = null;
+
+
+				while (redefit.hasNext()) {
+					Unit u = redefit.next();
+					Stmt s = (Stmt)u;
+					//if its the definition statement
+					if(s.containsFieldRef() && s.getFieldRef().getField().equals(field) && !containsUse(u, field)){
+						redefDef = ((AssignStmt)u).getRightOp();
+					}
+				}
+				while (originalit.hasNext()) {
+                    Unit u = originalit.next();
+                    Stmt s = (Stmt)u;
+                    //if its the definition statement                                                                        
+                    if(s.containsFieldRef() && s.getFieldRef().getField().equals(originalfield) && !containsUse(u, originalfield)){
+                        originalDef = ((AssignStmt)u).getRightOp();
+                    }
+                }
+
+				System.out.println("---------------------------------------------------");
+				System.out.println("This is original value: "+ originalDef + " of field: "+ originalfield);
+				System.out.println("This is redef value: "+ redefDef + " of field: "+ field);
+
+				//this will get it stolen with the other added field initialization thefting
+				if(originalDef != null && redefDef != null && !originalDef.equivTo(redefDef)){
+					System.out.println("Found a value change in: " + originalDef + "--->" + redefDef);
+					//TODO fix this for private methods, would need to build a unsafe access!
+					oldFieldToNew.put(field, field);
+					foundOne = true;
+				}
+				System.out.println("---------------------------------------------------");
+			}
+		}
+		if(addedFields.size() == 0 && foundOne){
+			fixClinit(redefinition);
+			
+        }
+	}
 
 	private void fixClinit(SootClass redefinition){
         List<Local> relevantLocals = new ArrayList<Local>();

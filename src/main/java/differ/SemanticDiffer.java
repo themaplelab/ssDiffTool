@@ -318,7 +318,7 @@ public class SemanticDiffer{
 		System.err.println("---------------------------------------");
         checkInheritance(original, redefinition);
 		System.err.println("---------------------------------------");
-		finishFieldSummary(fieldSummary, redefinition, methodSummary);
+		finishFieldSummary(original, fieldSummary, redefinition, methodSummary);
 		System.err.println("---------------------------------------");
 		finishMethodSummary(methodSummary, redefinition);
 		System.err.println("---------------------------------------");
@@ -392,11 +392,13 @@ public class SemanticDiffer{
 			return fieldSummary;
 
 	}
-	private static void finishFieldSummary(CheckSummary fieldSummary, SootClass redefinition, CheckSummary methodSummary){
-			if(fieldSummary.addedList.size() != 0){	
+	private static void finishFieldSummary(SootClass original, CheckSummary fieldSummary, SootClass redefinition, CheckSummary methodSummary){
+		
+		patchTransformer.fixStaticFieldValueChanges(original, redefinition, fieldSummary.addedList);
+		if(fieldSummary.addedList.size() != 0){	
 				System.err.println("\t Field(s) have been added.");
 				System.err.println(fieldSummary.addedList);
-				patchTransformer.transformFields(redefinition, fieldSummary.addedList, methodSummary.addedList);
+				patchTransformer.transformFields(original, redefinition, fieldSummary.addedList, methodSummary.addedList);
 			}else if(fieldSummary.removedList.size() != 0){
 				System.err.println("\tField(s) has been removed");
 				System.err.println(fieldSummary.removedList);
