@@ -468,16 +468,20 @@ public class PatchTransformer{
 
 	//fixes the static field value changes, for preexisting fields
 	public void fixStaticFieldValueChanges(SootClass original, SootClass redefinition, List<SootField> addedFields){
+		System.out.println("Checking if all original fields' values match, in original: " + original.getName()+" and redef: "+ redefinition.getName());
 		boolean foundOne = false;
 		for(SootField field : redefinition.getFields()){
 			SootField originalfield = original.getField(field.getName(), field.getType());
 			System.out.println(field.isStatic());
 			System.out.println(addedFields.contains(field));
 			if(!addedFields.contains(field) && field.isStatic()){
-		
+				System.out.println("---------------------------------------------------");
+				System.out.println("Found a static original field, to do a value change check on. Original: "+ originalfield.getName() + " vs Redefinition: "+ field.getName());
 				SootMethod clinitRedef = redefinition.getMethodUnsafe("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
 				SootMethod clinitOriginal = original.getMethodUnsafe("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
 
+				if(clinitRedef!= null && clinitOriginal!= null){
+				
 				Iterator<Unit> redefit  = clinitRedef.retrieveActiveBody().getUnits().snapshotIterator();
 				Iterator<Unit>  originalit =clinitOriginal.retrieveActiveBody().getUnits().snapshotIterator();
 				Value redefDef = null;
@@ -513,12 +517,18 @@ public class PatchTransformer{
 					foundOne = true;
 				}
 				System.out.println("---------------------------------------------------");
+				
+				
+				if(addedFields.size() == 0 && foundOne){
+					fixClinit(redefinition);
+					
+				}
+				}else{
+					System.out.println("Found a static field with no matching clinits. Field: "+ field.getName());
+					System.out.println("Original clinit: " + clinitOriginal + " and redef clinit: "+clinitRedef);
+				}
 			}
 		}
-		if(addedFields.size() == 0 && foundOne){
-			fixClinit(redefinition);
-			
-        }
 	}
 
 	private void fixClinit(SootClass redefinition){
