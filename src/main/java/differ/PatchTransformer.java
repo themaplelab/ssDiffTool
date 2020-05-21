@@ -1,5 +1,6 @@
 package differ;
 
+
 import java.util.Arrays;
 import java.util.List;
 import java.util.Iterator;
@@ -14,6 +15,7 @@ import soot.jimple.toolkits.callgraph.ExplicitEdgesPred;
 import soot.jimple.toolkits.callgraph.Filter;
 import soot.jimple.toolkits.callgraph.Targets;
 
+import soot.jimple.Constant;
 import soot.jimple.ClassConstant; //todo check if used
 import soot.jimple.IntConstant;
 import soot.jimple.StringConstant;
@@ -471,10 +473,10 @@ public class PatchTransformer{
 		System.out.println("Checking if all original fields' values match, in original: " + original.getName()+" and redef: "+ redefinition.getName());
 		boolean foundOne = false;
 		for(SootField field : redefinition.getFields()){
-			SootField originalfield = original.getField(field.getName(), field.getType());
-			System.out.println(field.isStatic());
-			System.out.println(addedFields.contains(field));
 			if(!addedFields.contains(field) && field.isStatic()){
+				SootField originalfield = original.getField(field.getName(), field.getType());
+				System.out.println(field.isStatic());
+				System.out.println(addedFields.contains(field));
 				System.out.println("---------------------------------------------------");
 				System.out.println("Found a static original field, to do a value change check on. Original: "+ originalfield.getName() + " vs Redefinition: "+ field.getName());
 				SootMethod clinitRedef = redefinition.getMethodUnsafe("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
@@ -510,7 +512,7 @@ public class PatchTransformer{
 				System.out.println("This is redef value: "+ redefDef + " of field: "+ field);
 
 				//this will get it stolen with the other added field initialization thefting
-				if(originalDef != null && redefDef != null && !originalDef.equivTo(redefDef)){
+				if(originalDef != null && redefDef != null && originalDef instanceof Constant && redefDef instanceof Constant && !originalDef.equivTo(redefDef)){
 					System.out.println("Found a value change in: " + originalDef + "--->" + redefDef);
 					//TODO fix this for private methods, would need to build a unsafe access!
 					oldFieldToNew.put(field, field);
