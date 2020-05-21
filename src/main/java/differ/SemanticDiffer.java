@@ -161,17 +161,16 @@ public class SemanticDiffer{
 
 				List<String> mainClassPackageNameComponents = new ArrayList<String>();
 				String[] mainClassPackageNameComponentsAll = options.getOptionValue("mainClass").split("\\.");
-				
+				System.out.println("ssdiff: mainClassPackageNameComponentsAll:");
+				System.out.println(Arrays.toString(mainClassPackageNameComponentsAll));
 				for(int i =0; i< mainClassPackageNameComponentsAll.length-1; i++){
 					mainClassPackageNameComponents.add(mainClassPackageNameComponentsAll[i]);
 				}
 				String mainClassPackageName = String.join("/", mainClassPackageNameComponents) + "/";
-				
-				System.err.println("SCENE2: "+ Scene.v());
+				System.out.println("ssdiff: mainClassPackageName: "+mainClassPackageName);
 				Scene.v().getApplicationClasses().clear();
 				System.err.println("Initial classes: ");
 				System.err.println(Scene.v().getApplicationClasses());
-				//Scene.v().printNameToClass();
 				System.err.println("Initial classes END ");
 
 				Scene.v().setSootClassPath(options.getOptionValue("redefcp")+":"+Scene.v().getSootClassPath());
@@ -182,7 +181,7 @@ public class SemanticDiffer{
 					redef.setApplicationClass();
 				}
 
-				System.err.println("Classes after redef hello load: ");
+				System.err.println("Classes after redef load: ");
 				System.err.println(Scene.v().getApplicationClasses());
 
 				
@@ -547,11 +546,20 @@ public class SemanticDiffer{
 			if (directoryListing != null) {
 				for (File file : directoryListing) {
 					if(file.toString().contains("class")){
-						//ugly parsing, its the only way tho?
-						String classname = file.toString().replaceFirst(strdir , "").replace(".class", "").replaceAll("\\/", ".");
-						System.out.println("Gathering class: "+ packagename+classname);
-						allNames.add(packagename+classname);
+						//ugly parsing, its the only way tho?         
+						String classname = null;
+						if(packagename.equals(".")){
+							//no package prefix
+							String[] namepieces = file.toString().replace(".class", "").split("/");
+							classname = namepieces[namepieces.length-1];
+							System.out.println("Gathering class: "+ classname);
+							allNames.add(classname);
+						}else{
+						    classname = file.toString().replaceFirst(strdir , "").replace(".class", "").replaceAll("\\/", ".");
+							System.out.println("Gathering class: "+ packagename+classname);
+							allNames.add(packagename+classname);
 						}
+					}
 				}
 			} else {
 				System.out.println("Directory supplied is not sufficient to read.");
