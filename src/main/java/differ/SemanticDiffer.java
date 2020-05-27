@@ -14,6 +14,7 @@ import java.io.OutputStreamWriter;
 import java.io.File;
 import java.io.BufferedReader;
 import java.io.FileReader;
+import java.nio.file.Paths;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.ParseException;
@@ -51,7 +52,9 @@ public class SemanticDiffer{
 	private static HashMap<SootClass, SootClass> originalToRedefinitionClassMap = new HashMap<SootClass, SootClass>();
 	private static List<String> allEmittedClassesRedefs = new ArrayList<String>();
 	private static List<String> allEmittedClassesHostClasses = new ArrayList<String>();
-
+	private static List<String> originalClassesList = new ArrayList<String>();
+	private static boolean doDiff = true;
+	
 	private static HashMap<SootClass, List<CheckSummary>> redefToDiffSummary = new HashMap<SootClass, List<CheckSummary>>();
 	
 	public static void main(String[] args) throws ParseException {
@@ -87,70 +90,63 @@ public class SemanticDiffer{
 		}
 
 		if(options.hasOption("runRename") && options.getOptionValue("runRename").equals("true")) {
-			PackManager.v().getPack("wjtp").add(new Transform("wjtp.renameTransform", createRenameTransformer(options1, options.getOptionValue("originalclasslist"))));
+			PackManager.v().getPack("wjtp").add(new Transform("wjtp.renameTransform", createRenameTransformer(options1)));
 			for(int i =2; i < options1.size(); i++){
 				options1final.add(options1.get(i));
 			}
 
-			//Options.v().set_src_prec(Options.v().src_prec_cache);    
 			System.out.println("First soot has these options: " + options1final);
 			soot.Main.main(options1final.toArray(new String[0]));
 			//not sure if this is needed
 			PackManager.v().getPack("wjtp").remove("wjtp.renameTransform");
 			G.reset();
 		}
-		PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTransform", createDiffTransformer()));
-		//options2.set(1, options.getOptionValue("redefcp")+ ":" +options1.get(1));
-
-
-		//		for(int i =2; i < options2.size(); i++){
-		//	options2final.add(options2.get(i));
-		//}
-		options2final.add("-w");
-		options2final.add( options.getOptionValue("mainClass"));
-		//options2.set(options2.size()-3,  options.getOptionValue("mainClass"));
-
-		//this is so that when using src_cache we can get all classes from scc EXCEPT the app class
-		/*List<String> classpathForSootTwo = Arrays.asList(options1.get(1).split(":"));
-		System.out.println("SSDIFF list of cp is: "+ classpathForSootTwo);
-		classpathForSootTwo.set(0, "");
-		String choppedClasspath = String.join(":", classpathForSootTwo);
-		System.out.println("SSDIFF choppedClasspath: "+ choppedClasspath);
-		Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":" +choppedClasspath);
-		*/
-		Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":"+options1.get(1));
-
-		Options.v().set_output_dir(options.getOptionValue("altDest"));
-		Options.v().set_src_prec(Options.v().src_prec_cache);
-		Options.v().set_allow_phantom_refs(true);
-		Options.v().setPhaseOption("cg", "all-reachable:true");
-		System.out.println("Second soot has these options: " + options2final);
-		System.out.println("Second soot has this classpath (newvs): "+ Scene.v().getSootClassPath());
-		CacheClassProvider.setTestClassUrl(""); //this is a bad way to set this
-		//Scene.v().getApplicationClasses().clear();
-		//also want to clear the nametoclass map of the main class entry
-		//Scene.v().removeClass(Scene.v().getSootClassUnsafe(options.getOptionValue("mainClass")));
-        soot.Main.main(options2final.toArray(new String[0]));
+		if(doDiff){ //means that there was something to rename
+			PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTransform", createDiffTransformer()));
+			options2final.add("-w");
+			options2final.add( options.getOptionValue("mainClass"));
+			
+			Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":"+options1.get(1));
+			
+			Options.v().set_output_dir(options.getOptionValue("altDest"));
+			Options.v().set_src_prec(Options.v().src_prec_cache);
+			Options.v().set_allow_phantom_refs(true);
+			Options.v().setPhaseOption("cg", "all-reachable:true");
+			System.out.println("Second soot has these options: " + options2final);
+			System.out.println("Second soot has this classpath (newvs): "+ Scene.v().getSootClassPath());
+			CacheClassProvider.setTestClassUrl(""); //this is a bad way to set this
+			soot.Main.main(options2final.toArray(new String[0]));
+		}
 	}
 
-	private static Transformer createRenameTransformer(List<String> options1, String originalList){
+	public static void setClasses(List<String> classes){
+		originalClassesList = classes; 
+	}
+	
+	private static Transformer createRenameTransformer(List<String> options1){
 		return new SceneTransformer() {
 			protected void internalTransform(String phaseName, Map options) {
 				//not super great option handling... gets the soot cp and gets the dir we know contains the og defs of classes
 				System.out.println("In phase 1: these are our access to options: "+ options1.get(1));
-				System.out.println("This is the classlist file to use: "+ originalList);
-				ArrayList<SootClass> allOG = gatherClassesFromFile(originalList);
-				Scene.v().getApplicationClasses().clear();
-				for(SootClass original : allOG){
-					original.rename((original.getName()+originalRenameSuffix));
-					Scene.v().getOrAddRefType(original.getType());
-					original.setApplicationClass();
+				System.out.println("This is the classlist file to use: "+ originalClassesList);
+				if(originalClassesList.size()!=0){
+					ArrayList<SootClass> allOG = gatherClassesFromFile(originalClassesList);
+				
+					Scene.v().getApplicationClasses().clear();
+					for(SootClass original : allOG){
+						original.rename(original.getName()+originalRenameSuffix);
+						Scene.v().getOrAddRefType(original.getType());
+						original.setApplicationClass();
+					}
+					System.err.println("Finished rename phase.");
+					System.err.println("----------------------------------------------");
+					System.err.println("This is the soot class path atm: "+ Scene.v().getSootClassPath());
+					System.err.println("These are all of the classes right now: ");
+					System.err.println(Scene.v().getClasses());
+				} else{
+					System.err.println("Did not receive a list of classes to rename");
+					doDiff = false;
 				}
-				System.err.println("Finished rename phase.");
-				System.err.println("----------------------------------------------");
-				System.err.println("This is the soot class path atm: "+ Scene.v().getSootClassPath());
-				System.err.println("These are all of the classes right now: ");
-				System.err.println(Scene.v().getClasses());
 			}
 		};
 	}
@@ -161,13 +157,11 @@ public class SemanticDiffer{
 
 				List<String> mainClassPackageNameComponents = new ArrayList<String>();
 				String[] mainClassPackageNameComponentsAll = options.getOptionValue("mainClass").split("\\.");
-				System.out.println("ssdiff: mainClassPackageNameComponentsAll:");
 				System.out.println(Arrays.toString(mainClassPackageNameComponentsAll));
 				for(int i =0; i< mainClassPackageNameComponentsAll.length-1; i++){
 					mainClassPackageNameComponents.add(mainClassPackageNameComponentsAll[i]);
 				}
 				String mainClassPackageName = String.join("/", mainClassPackageNameComponents) + "/";
-				System.out.println("ssdiff: mainClassPackageName: "+mainClassPackageName);
 				Scene.v().getApplicationClasses().clear();
 				System.err.println("Initial classes: ");
 				System.err.println(Scene.v().getApplicationClasses());
@@ -572,19 +566,30 @@ public class SemanticDiffer{
 	}
 
 	//reads the classes that designate the patch, from a file. One class per line, fqn.
-	private static ArrayList<SootClass> gatherClassesFromFile(String configFile){
+	//needs to exist bc each class to analyse may require many classes to be patched for it
+	private static ArrayList<SootClass> gatherClassesFromFile(List<String> originalClassesList ){
 		ArrayList<SootClass> allClasses = new ArrayList<SootClass>();
 		try{
-			BufferedReader in = new BufferedReader(new FileReader(configFile));
-			String str;
-			ArrayList<String> allNames = new ArrayList<String>();
-			while((str = in.readLine()) != null){
-			allNames.add(str.replace(".class", "").replaceAll("\\/", "."));
+			for(String classname : originalClassesList){
+				String filename = Paths.get("").toAbsolutePath().toString() + "/" +classname+".originalclasses.out";
+				System.out.println("SSDIFF: Searching for patch classes from file: "+filename);
+				if (new File(filename).exists()){
+					System.out.println("SSDIFF: Reading patch classes from: "+filename);
+					BufferedReader in = new BufferedReader(new FileReader(filename));
+					String str;
+					ArrayList<String> allNames = new ArrayList<String>();
+					while((str = in.readLine()) != null){
+						String name = str.replace(".class", "").replaceAll("\\/", ".");
+						if(!allNames.contains(name)){
+							allNames.add(name);
+						}
+					}
+					allClasses = resolveClasses(allNames);
+				}
 			}
-			allClasses = resolveClasses(allNames);
 		}catch(Exception e){
-            System.out.println("Some issue accessing the classes to be renamed: "+ e.getMessage());
-        }
+			System.out.println("Some issue accessing the classes to be renamed: "+ e.getMessage());
+		}
 		return allClasses;
 	}
 
