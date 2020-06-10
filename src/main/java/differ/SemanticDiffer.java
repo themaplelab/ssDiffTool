@@ -1,5 +1,6 @@
 package differ;
 
+
 import java.util.Map;
 import java.util.HashMap;
 import java.util.List;
@@ -56,7 +57,7 @@ public class SemanticDiffer{
 	private static boolean doDiff = true;
 	
 	private static HashMap<SootClass, List<CheckSummary>> redefToDiffSummary = new HashMap<SootClass, List<CheckSummary>>();
-	
+
 	public static void main(String[] args) throws ParseException {
 
 		//doesnt die on unknown options, will pass them to soot
@@ -91,6 +92,7 @@ public class SemanticDiffer{
 
 		if(options.hasOption("runRename") && options.getOptionValue("runRename").equals("true")) {
 			PackManager.v().getPack("wjtp").add(new Transform("wjtp.renameTransform", createRenameTransformer(options1)));
+			System.out.println("DIFFER these were the first two options:" + options1.get(0) + "AND " + options1.get(1));
 			for(int i =2; i < options1.size(); i++){
 				options1final.add(options1.get(i));
 			}
@@ -135,7 +137,7 @@ public class SemanticDiffer{
 					Scene.v().getApplicationClasses().clear();
 					for(SootClass original : allOG){
 						original.rename(original.getName()+originalRenameSuffix);
-						Scene.v().getOrAddRefType(original.getType());
+						Scene.v().getOrAddRefType(original.getType().getClassName());
 						original.setApplicationClass();
 					}
 					System.err.println("Finished rename phase.");
@@ -190,24 +192,9 @@ public class SemanticDiffer{
 				
 				sortClasses(allOriginals, allRedefs);
 				System.err.println("Classes map after the sort: "+ originalToRedefinitionClassMap);
-				
-				SootClass original = allOriginals.get(0);
-				SootClass redefinition = allRedefs.get(0);
-				if (original != null && redefinition != null){
-					System.err.println("Resulting classes: ");
-					System.err.println(Scene.v().getApplicationClasses());
-					
-					System.err.println("CHECKING if they are the same references: ");
-					System.err.println(original);
-					System.err.println(redefinition);
-					System.err.println(original.equals(redefinition));
-					//Scene.v().printNameToClass();
-					System.err.println("Original resolving level: "+ original.resolvingLevel());
-					System.err.println("redefinition resolving level: "+ redefinition.resolvingLevel());
-					System.err.println("Original is phantom: "+ original.isPhantomClass());
-					System.err.println("Redef is phantom: "+ redefinition.isPhantomClass());
-				}
 
+				System.err.println("Resulting classes: ");
+				System.err.println(Scene.v().getApplicationClasses());
 
 				patchTransformer = new PatchTransformer(newClassMap, newClassMapReversed);
 
@@ -257,9 +244,11 @@ public class SemanticDiffer{
 					allEmittedClassesRedefs.add(redef.getName());
 				}
 				for(SootClass newCls : newClassMap.values()){
-					Scene.v().addClass(newCls);
-					allEmittedClassesHostClasses.add(newCls.getName());
-					writeNewClass(newCls);
+					if(!Scene.v().containsClass(newCls.getName()) && !newCls.isInScene()){
+						Scene.v().addClass(newCls);
+						allEmittedClassesHostClasses.add(newCls.getName());
+						writeNewClass(newCls);
+					}
 				}
 			}
 		};
@@ -489,6 +478,8 @@ public class SemanticDiffer{
 				System.err.println(methodSummary.addedList);
 				//do the method stealing as we go
 				patchTransformer.stealMethodCalls(redefinition, methodSummary.addedList);
+				//also fix the instance method refs that exist in stolen methods, since "this" is now wrong                     
+				patchTransformer.fixMethodRefsInAddedMethods(redefinition, methodSummary.addedList);
 			}else if(methodSummary.removedList.size() != 0){
 				System.err.println("\tMethod(s) has been removed");
 				System.err.println(methodSummary.removedList);

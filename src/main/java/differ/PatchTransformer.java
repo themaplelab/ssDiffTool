@@ -379,11 +379,7 @@ public class PatchTransformer{
 		}
 
 		//fix the field refs for "the other way" - refs using "this" that refer to a redef class, in an added method
-		fixFieldRefsInAddedMethods(redefinition, addedMethods);
-
-		//also fix the instance method refs that exist in stolen methods, since "this" is now wrong
-		fixMethodRefsInAddedMethods(redefinition, addedMethods);
-		
+		fixFieldRefsInAddedMethods(redefinition, addedMethods);	
 	}
 
 	//adds the field to the new class and if the field was private constructs an accessor for it
@@ -936,6 +932,8 @@ public class PatchTransformer{
 	 * mapped to its host or vise versa
 	 */
 	private Local lookup(SootClass newClass, SootClass classToMakeRefOf, Body body, PatchingChain<Unit> units, Unit insertBeforeHere, Value baseOfOriginalStmt, String whichTableToUse){
+
+		System.out.println("Building a hashtable lookup, table: "+ whichTableToUse + " using this key for the map: " + baseOfOriginalStmt +" and adding it before this statement: "+ insertBeforeHere  );
 		
 		Local classToMakeRefOfRef = Jimple.v().newLocal("newClassRef", classToMakeRefOf.getType());
 		body.getLocals().add(classToMakeRefOfRef);
@@ -997,7 +995,8 @@ public class PatchTransformer{
 	 * in added methods, bc they will have been 
 	 * pointing to this which will need to be translated using the map
 	 */
-	private void fixMethodRefsInAddedMethods(SootClass redefinition, List<SootMethod> addedMethods){
+	public void fixMethodRefsInAddedMethods(SootClass redefinition, List<SootMethod> addedMethods){
+		System.out.println("------------------------------------------------");
 		CallGraph cg = Scene.v().getCallGraph();
 		List<SootMethod> redefMethods = redefinition.getMethods();
 		for(SootMethod m : addedMethods){
@@ -1015,12 +1014,13 @@ public class PatchTransformer{
 				if (s.containsInvokeExpr()) {
 					InvokeExpr invokeExpr = s.getInvokeExpr();
 					if (invokeExpr instanceof InstanceInvokeExpr) {
+						System.out.println("Looking at this instance of invoke expr, in an added method: "+ s);
 						Iterator targets = new Targets(explicitInvokesFilter.wrap(cg.edgesOutOf(s)));
 						List<SootMethod> methods = new ArrayList<SootMethod>();
 						while(targets.hasNext()){
 							SootMethod next = (SootMethod) targets.next();
 							if(redefMethods.contains(next)){
-								
+								System.out.println("Patching a target in an added method: "+ next +" at this statement: "+ s);
 								SootClass newClass = redefToNewClassMap.get(redefinition);
 								Local redefintionClassRef = lookup(newClass, redefinition, body, units, u, ((InstanceInvokeExpr)invokeExpr).getBase(), hostToOgHashTableName);
 								if(invokeExpr instanceof SpecialInvokeExpr){
@@ -1035,6 +1035,7 @@ public class PatchTransformer{
 							}
 						}
 					}
+					System.out.println("------------------------------------------------");
 				}
 			}
 		}
