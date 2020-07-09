@@ -54,6 +54,7 @@ public class SemanticDiffer{
 	private static List<String> allEmittedClassesRedefs = new ArrayList<String>();
 	private static List<String> allEmittedClassesHostClasses = new ArrayList<String>();
 	private static List<String> originalClassesList = new ArrayList<String>();
+	private static List<String> loadedRenamedClasses = new ArrayList<String>();
 	private static boolean doDiff = true;
 	
 	private static HashMap<SootClass, List<CheckSummary>> redefToDiffSummary = new HashMap<SootClass, List<CheckSummary>>();
@@ -106,14 +107,23 @@ public class SemanticDiffer{
 		if(doDiff){ //means that there was something to rename
 			PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTransform", createDiffTransformer()));
 			options2final.add("-w");
-			options2final.add( options.getOptionValue("mainClass"));
-			
+
+			//TODO fix this to actually use the full loaded patch list with patch adapter, currently looks at one class only here
+			if(loadedRenamedClasses.size() == 1 && !loadedRenamedClasses.contains(options.getOptionValue("mainClass"))){
+				options2final.add( loadedRenamedClasses.get(0));
+			} else {
+				options2final.add( options.getOptionValue("mainClass"));
+			}
+							
 			Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":"+options1.get(1));
 			
 			Options.v().set_output_dir(options.getOptionValue("altDest"));
 			Options.v().set_src_prec(Options.v().src_prec_cache);
+			System.out.println("ssdiff: setup for adapter prefers cache? "+Options.v().src_prec_cache);
 			Options.v().set_allow_phantom_refs(true);
 			Options.v().setPhaseOption("cg", "all-reachable:true");
+
+			
 			System.out.println("Second soot has these options: " + options2final);
 			System.out.println("Second soot has this classpath (newvs): "+ Scene.v().getSootClassPath());
 			CacheClassProvider.setTestClassUrl(""); //this is a bad way to set this
@@ -158,7 +168,14 @@ public class SemanticDiffer{
 			protected void internalTransform(String phaseName, Map originalOptions) {
 
 				List<String> mainClassPackageNameComponents = new ArrayList<String>();
-				String[] mainClassPackageNameComponentsAll = options.getOptionValue("mainClass").split("\\.");
+				String[] mainClassPackageNameComponentsAll;
+				//todo fix for full list
+				if(loadedRenamedClasses.size() == 1 && !loadedRenamedClasses.contains(options.getOptionValue("mainClass"))){
+					mainClassPackageNameComponentsAll = loadedRenamedClasses.get(0).split("\\.");
+				} else {
+					mainClassPackageNameComponentsAll = options.getOptionValue("mainClass").split("\\.");
+				}
+
 				System.out.println(Arrays.toString(mainClassPackageNameComponentsAll));
 				for(int i =0; i< mainClassPackageNameComponentsAll.length-1; i++){
 					mainClassPackageNameComponents.add(mainClassPackageNameComponentsAll[i]);
@@ -573,6 +590,7 @@ public class SemanticDiffer{
 						String name = str.replace(".class", "").replaceAll("\\/", ".");
 						if(!allNames.contains(name)){
 							allNames.add(name);
+							loadedRenamedClasses.add(name);
 						}
 					}
 					allClasses = resolveClasses(allNames);

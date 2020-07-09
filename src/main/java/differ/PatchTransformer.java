@@ -51,6 +51,8 @@ import soot.jimple.JimpleBody;
 import soot.jimple.StaticInvokeExpr;
 import soot.jimple.ThisRef;	
 
+import soot.toolkits.scalar.ConstantValueToInitializerTransformer;
+
 public class PatchTransformer{
 
 	private HashMap<SootClass, SootClass> redefToNewClassMap;
@@ -475,57 +477,60 @@ public class PatchTransformer{
 				System.out.println(addedFields.contains(field));
 				System.out.println("---------------------------------------------------");
 				System.out.println("Found a static original field, to do a value change check on. Original: "+ originalfield.getName() + " vs Redefinition: "+ field.getName());
+
 				SootMethod clinitRedef = redefinition.getMethodUnsafe("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
 				SootMethod clinitOriginal = original.getMethodUnsafe("<clinit>", Arrays.asList(new Type[]{}), VoidType.v());
-
-				if(clinitRedef!= null && clinitOriginal!= null){
-				
-				Iterator<Unit> redefit  = clinitRedef.retrieveActiveBody().getUnits().snapshotIterator();
-				Iterator<Unit>  originalit =clinitOriginal.retrieveActiveBody().getUnits().snapshotIterator();
-				Value redefDef = null;
-				Value originalDef = null;
-
-
-				while (redefit.hasNext()) {
-					Unit u = redefit.next();
-					Stmt s = (Stmt)u;
-					//if its the definition statement
-					if(s.containsFieldRef() && s.getFieldRef().getField().equals(field) && !containsUse(u, field)){
-						redefDef = ((AssignStmt)u).getRightOp();
-					}
-				}
-				while (originalit.hasNext()) {
-                    Unit u = originalit.next();
-                    Stmt s = (Stmt)u;
-                    //if its the definition statement                                                                        
-                    if(s.containsFieldRef() && s.getFieldRef().getField().equals(originalfield) && !containsUse(u, originalfield)){
-                        originalDef = ((AssignStmt)u).getRightOp();
-                    }
-                }
-
-				System.out.println("---------------------------------------------------");
-				System.out.println("This is original value: "+ originalDef + " of field: "+ originalfield);
-				System.out.println("This is redef value: "+ redefDef + " of field: "+ field);
-
-				//this will get it stolen with the other added field initialization thefting
-				if(originalDef != null && redefDef != null && originalDef instanceof Constant && redefDef instanceof Constant && !originalDef.equivTo(redefDef)){
-					System.out.println("Found a value change in: " + originalDef + "--->" + redefDef);
-					//TODO fix this for private methods, would need to build a unsafe access!
-					oldFieldToNew.put(field, field);
-					foundOne = true;
-				}
-				System.out.println("---------------------------------------------------");
-				
-				
-				if(addedFields.size() == 0 && foundOne){
-					fixClinit(redefinition);
 					
-				}
-				}else{
-					System.out.println("Found a static field with no matching clinits. Field: "+ field.getName());
-					System.out.println("Original clinit: " + clinitOriginal + " and redef clinit: "+clinitRedef);
-				}
+					if(clinitRedef!= null && clinitOriginal!= null){
+						
+						Iterator<Unit> redefit  = clinitRedef.retrieveActiveBody().getUnits().snapshotIterator();
+						Iterator<Unit>  originalit =clinitOriginal.retrieveActiveBody().getUnits().snapshotIterator();
+						Value redefDef = null;
+						Value originalDef = null;
+						
+
+						while (redefit.hasNext()) {
+							Unit u = redefit.next();
+							Stmt s = (Stmt)u;
+							//if its the definition statement
+							if(s.containsFieldRef() && s.getFieldRef().getField().equals(field) && !containsUse(u, field)){
+								redefDef = ((AssignStmt)u).getRightOp();
+							}
+						}
+						while (originalit.hasNext()) {
+							Unit u = originalit.next();
+							Stmt s = (Stmt)u;
+							//if its the definition statement                                                                        
+							if(s.containsFieldRef() && s.getFieldRef().getField().equals(originalfield) && !containsUse(u, originalfield)){
+								originalDef = ((AssignStmt)u).getRightOp();
+							}
+						}
+							
+						System.out.println("---------------------------------------------------");
+						System.out.println("This is original value: "+ originalDef + " of field: "+ originalfield);
+						System.out.println("This is redef value: "+ redefDef + " of field: "+ field);
+						
+						//this will get it stolen with the other added field initialization thefting
+						if(originalDef != null && redefDef != null && originalDef instanceof Constant && redefDef instanceof Constant && !originalDef.equivTo(redefDef)){
+							System.out.println("Found a value change in: " + originalDef + "--->" + redefDef);
+							//TODO fix this for private methods, would need to build a unsafe access!
+							oldFieldToNew.put(field, field);
+							foundOne = true;
+						}
+						System.out.println("---------------------------------------------------");
+						
+						
+						if(addedFields.size() == 0 && foundOne){
+							fixClinit(redefinition);
+							
+						}
+						
+					}else{
+						System.out.println("Found a static field with no matching clinits. Field: "+ field.getName());
+						System.out.println("Original clinit: " + clinitOriginal + " and redef clinit: "+clinitRedef);
+					}
 			}
+		
 		}
 	}
 
