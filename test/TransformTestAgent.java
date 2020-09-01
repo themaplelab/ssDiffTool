@@ -13,7 +13,7 @@ import differ.SemanticDiffer;
 
 public class TransformTestAgent{
 
-	private static String[] differArgs = {"-cp", "cpplaceholder", "-w", "-firstDest", "renamedOriginals", "-altDest", "adapterOutput", "-f", "c", "-redefcp", "diffdirplaceholder", "-runRename", "renameplaceholder", "-mainClass", "TestRunner", "-originalcp", "originalcpplaceholder", "Example"}; 
+	private static String[] differArgs = {"-cp", "cpplaceholder", "-w", "-firstDest", "renamedOriginals", "-altDest", "adapterOutput", "-f", "c", "-redefcp", "diffdirplaceholder", "-runRename", "renameplaceholder",  "-mainClass", "TestRunner", "-originalclasslist", "originalclasslistplaceholder", "Example"}; 
 	private static String[] argpieces;
 	
 	public static Instrumentation instrument;
@@ -54,7 +54,7 @@ public class TransformTestAgent{
 				differArgs[1] = differArgs[1].replace("cpplaceholder", argpieces[2]);
 				differArgs[10] = differArgs[10].replace("diffdirplaceholder", argpieces[1]);
 				differArgs[12] = differArgs[12].replace("renameplaceholder", argpieces[3]);
-				differArgs[16] = differArgs[16].replace("originalcpplaceholder", argpieces[0]);
+				differArgs[16] = differArgs[16].replace("originalclasslistplaceholder", argpieces[0]);
 				SemanticDiffer.main(differArgs);
 				//will always be here
 				String redefdir= Paths.get("").toAbsolutePath().toString() + "/adapterOutput/";

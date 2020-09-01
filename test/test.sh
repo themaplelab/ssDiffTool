@@ -46,10 +46,11 @@ do
 			
 			redefdir=${projectdir}test/tests/${redefinitions[testset]}/
 			originaldir=${projectdir}test/tests/${originals[testset]}/
+			originalclasslist=${originaldir}originalclasses.out
 			
 			cp="$originaldir:.:$latestssbuild:$1:${projectdir}test/adapterOutput/:"${redefdir}
 			
-			java -cp $cp -javaagent:transformtestagent.jar=$originaldir,$redefdir,$cp,$runRename TestRunner $arg  &> testoutputs/${originals[testset]}$arg.out
+			java -cp $cp -javaagent:transformtestagent.jar=$originalclasslist,$redefdir,$cp,$runRename TestRunner $arg  &> testoutputs/${originals[testset]}$arg.out
 			runRename="false" #if there are extra runs of this setup, save a few rename phases
 
 			#do the test checking, using a predetermined expected output
