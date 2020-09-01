@@ -39,7 +39,6 @@ import soot.util.Chain;
 import soot.jimple.JasminClass;
 import soot.options.Options;
 import soot.util.JasminOutputStream;
-import soot.asm.CacheClassProvider;
 
 public class SemanticDiffer{
 
@@ -118,15 +117,12 @@ public class SemanticDiffer{
 			Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":"+options1.get(1));
 			
 			Options.v().set_output_dir(options.getOptionValue("altDest"));
-			Options.v().set_src_prec(Options.v().src_prec_cache);
-			System.out.println("ssdiff: setup for adapter prefers cache? "+Options.v().src_prec_cache);
 			Options.v().set_allow_phantom_refs(true);
 			Options.v().setPhaseOption("cg", "all-reachable:true");
 
 			
 			System.out.println("Second soot has these options: " + options2final);
 			System.out.println("Second soot has this classpath (newvs): "+ Scene.v().getSootClassPath());
-			CacheClassProvider.setTestClassUrl(""); //this is a bad way to set this
 			soot.Main.main(options2final.toArray(new String[0]));
 		}
 	}
@@ -147,7 +143,7 @@ public class SemanticDiffer{
 					Scene.v().getApplicationClasses().clear();
 					for(SootClass original : allOG){
 						original.rename(original.getName()+originalRenameSuffix);
-						Scene.v().getOrAddRefType(original.getType().getClassName());
+						Scene.v().getOrAddRefType(original.getType());
 						original.setApplicationClass();
 					}
 					System.err.println("Finished rename phase.");
