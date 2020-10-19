@@ -36,8 +36,10 @@ public class ValidationTest {
 		writer.println(mainClass);
 		writer.close();
 		//
-
-		String cp = normalCp + ":" + redefDir + ":" + "/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/rt.jar:/root/openj9-openjdk-jdk8/build/linux-x86_64-normal-server-release/images/j2sdk-image/jre/lib/jce.jar";
+		System.out.println("java.home = " + System.getProperty("java.home"));
+		String jce = System.getProperty("java.home") + "/lib/jce.jar";
+		String rt = System.getProperty("java.home") + "/lib/rt.jar";
+		String cp = normalCp + ":" + redefDir + ":" + rt + ":" + jce;
 		
 		String[] differArgs = {"-cp", cp, "-cp", cp, "-w", "-firstDest", renamedDir, "-altDest", output, "-redefcp", redefDir, "-runRename", "true", "-mainClass", mainClass, "-originalclasslist", prefix + "/" + mainClass + ".originalclasses.out", "Example"};
 		System.out.println("Command Line: " + Arrays.toString(differArgs));
