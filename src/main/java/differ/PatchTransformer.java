@@ -265,7 +265,12 @@ public class PatchTransformer{
 		SootMethodRef newClassMethod = newClass.getMethod(invokeExpr.getMethodRef().getSubSignature()).makeRef();
 		System.out.println("replacing a method call in this statement: "+ (Stmt)currentInsn);
 		System.out.println(invokeExpr.getMethodRef() + " ---> " + newClassMethod);
-		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(newClassRef, newClassMethod, invokeExpr.getArgs())) , currentInsn);
+		if(currentInsn instanceof AssignStmt){
+		    //invoke in an assignment can only be right op
+		    units.insertBefore(Jimple.v().newAssignStmt(((AssignStmt)currentInsn).getLeftOp(), Jimple.v().newVirtualInvokeExpr(newClassRef, newClassMethod, invokeExpr.getArgs())), currentInsn);
+		} else {
+		    units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(newClassRef, newClassMethod, invokeExpr.getArgs())) , currentInsn);
+		}
 		System.out.println("Removing statement: "+ currentInsn);
 		units.remove(currentInsn);
 	}
