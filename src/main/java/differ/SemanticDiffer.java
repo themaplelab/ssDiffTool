@@ -58,8 +58,13 @@ public class SemanticDiffer{
 	
 	private static HashMap<SootClass, List<CheckSummary>> redefToDiffSummary = new HashMap<SootClass, List<CheckSummary>>();
 
+    private static ArrayList<String> allOGNames = new ArrayList<String>();
+    
 	public static void main(String[] args) throws ParseException {
 
+	    //reset if previously run
+	    allOGNames.clear();
+	    
 		//doesnt die on unknown options, will pass them to soot
 		RelaxedParser parser = new RelaxedParser();
 		options = parser.parse(new SemanticOptions(), args);
@@ -138,7 +143,7 @@ public class SemanticDiffer{
 				System.out.println("In phase 1: these are our access to options: "+ options1.get(1));
 				System.out.println("This is the classlist file to use: "+ originalClassesList);
 				if(originalClassesList.size()!=0){
-					ArrayList<SootClass> allOG = gatherClassesFromFile(originalClassesList);
+				        ArrayList<SootClass> allOG = gatherClassesFromFile(originalClassesList);
 				
 					Scene.v().getApplicationClasses().clear();
 					for(SootClass original : allOG){
@@ -393,7 +398,6 @@ public class SemanticDiffer{
 		if(fieldSummary.addedList.size() != 0){	
 				System.err.println("\t Field(s) have been added.");
 				System.err.println(fieldSummary.addedList);
-				patchTransformer.transformFields(original, redefinition, fieldSummary.addedList, methodSummary.addedList);
 			}else if(fieldSummary.removedList.size() != 0){
 				System.err.println("\tField(s) has been removed");
 				System.err.println(fieldSummary.removedList);
@@ -406,6 +410,8 @@ public class SemanticDiffer{
 			}else if (!fieldSummary.changes){
 				System.err.println("\tNo Field differences!");
 			}
+		//fix field refs in potentially added methods even if no fields added
+		patchTransformer.transformFields(original, redefinition, fieldSummary.addedList, methodSummary.addedList);
 			
 	}
 
@@ -543,19 +549,23 @@ public class SemanticDiffer{
 			File[] directoryListing = dir.listFiles();
 			if (directoryListing != null) {
 				for (File file : directoryListing) {
-					if(file.toString().contains("class")){
+				    if(file.toString().contains("class")){
 						//ugly parsing, its the only way tho?         
 						String classname = null;
 						if(packagename.equals(".")){
 							//no package prefix
 							String[] namepieces = file.toString().replace(".class", "").split("/");
 							classname = namepieces[namepieces.length-1];
-							System.out.println("Gathering class: "+ classname);
-							allNames.add(classname);
+							if(allOGNames.contains(classname)){
+							    System.out.println("Gathering class: "+ classname);
+							    allNames.add(classname);
+							}
 						}else{
 						    classname = file.toString().replaceFirst(strdir , "").replace(".class", "").replaceAll("\\/", ".");
+						    if(allOGNames.contains(packagename+classname)){
 							System.out.println("Gathering class: "+ packagename+classname);
 							allNames.add(packagename+classname);
+						    }
 						}
 					}
 				}
@@ -581,15 +591,14 @@ public class SemanticDiffer{
 					System.out.println("SSDIFF: Reading patch classes from: "+filename);
 					BufferedReader in = new BufferedReader(new FileReader(filename));
 					String str;
-					ArrayList<String> allNames = new ArrayList<String>();
 					while((str = in.readLine()) != null){
 						String name = str.replace(".class", "").replaceAll("\\/", ".");
-						if(!allNames.contains(name)){
-							allNames.add(name);
+						if(!allOGNames.contains(name)){
+						    allOGNames.add(name);
 							loadedRenamedClasses.add(name);
 						}
 					}
-					allClasses = resolveClasses(allNames);
+					allClasses = resolveClasses(allOGNames);
 				}
 			}
 		}catch(Exception e){
