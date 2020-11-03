@@ -4,6 +4,7 @@ import java.net.MalformedURLException;
 import java.net.URLClassLoader;
 import java.net.URL;
 import java.io.File;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.List;
 
@@ -19,7 +20,8 @@ public class TestSetup {
     private static final String renamedDir = resources + "/renamedOriginals"; //for first setup patch adapter output                                                                                       
     private static final String normalCp = prefix + "/target/classes/";
     private static final String redefDir = prefix +"/src/main/java/patch"; //for patch classes 
-
+    private static final String packagePrefix = "/testexamples/";
+    
     public static void makeListFiles(String[] classes) throws Throwable {
 	String mainClass = classes[0];
 	File origList = new File(prefix + "/" + mainClass + ".originalclasses.out");
@@ -48,6 +50,27 @@ public class TestSetup {
 	
     }
 
+    public static void testSetupRefresh(){
+	//first the prev run adapter outputs 
+	deleteFiles(output+packagePrefix);
+	//then the renamed temp outputs
+	deleteFiles(renamedDir+packagePrefix);
+	//reset Soot, aka the Scene and loaded classes
+	G.reset();
+    }
+
+    private static void deleteFiles(String path){
+	//clears the temp directories used in prev test setups   
+	for (File child : (new File(path)).listFiles()){
+            System.out.println("Cleaning up: "+ child);
+            try{
+                Files.deleteIfExists(child.toPath());
+            } catch(Exception e) {
+                System.out.println("Error deleting file: "+ e.getMessage());
+            }
+        }
+    }
+
     public static void runAdapter(List<String> classes, String[] differArgs){
 	SemanticDiffer.setClasses(classes);
 	try{
@@ -58,7 +81,7 @@ public class TestSetup {
 	}
     }
 
-    
+
     //https://github.com/Sable/soot/blob/master/src/test/java/soot/jimple/MethodHandleTest.java#L134
     public static Class<?> validateClassFile(String className) throws MalformedURLException, ClassNotFoundException {
 	// Make sure the classfile is actually valid...                                        
