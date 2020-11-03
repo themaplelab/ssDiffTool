@@ -612,7 +612,7 @@ public class PatchTransformer{
 
 	private void fixFieldRefs(SootClass redefinition, List<SootMethod> addedMethods){
 		for(SootMethod m : redefinition.getMethods()){
-			if(!m.getName().equals("<clinit>")){
+		    if(!m.getName().equals("<clinit>") &&  m.hasActiveBody()){
 				boolean addedMethod = false;
 			if(addedMethods.contains(m)){
 				addedMethod = true;
