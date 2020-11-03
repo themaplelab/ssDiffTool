@@ -1,7 +1,6 @@
-# ssDiffTool (Soot Semantic DiffTool)
-  * a tool for determining the differences between two versions of a class
-  * differences are output in terms of Java standard nonpermissible types of redefinition changes, from the JVMTI/Java Agent mechanism
-  * this project depends on [Soot](https://github.com/Sable/soot)!
+# Patch Adapter
+  * a tool for adjusting software patches so that they can be used for hotfixing with a Java agent that uses the Instrumentation API
+  * this project depends on [Soot](https://github.com/soot-oss/soot)!
 
 
 ## Standards:
@@ -9,8 +8,8 @@
 
 ## How it works:
   * the tool runs in two phases, where each invokes a new run of Soot
-    * first phase: renames the set of original classes and places in to the directory 'renamedOriginals'
-	* second phase: Soot loads both the renamed originals and the redefinition classes, then :
+    1) renames the set of original classes and places in to the directory 'renamedOriginals'
+    2) Soot loads both the renamed originals and the classes in the patch, then :
 	   * SemanticDiffer detects differences of interest between the versions
 	   * SemanticDiffer passes points of interest to PatchAdapter to transform the redefinition classes
 	   * a set of (possibly transformed) classes are emitted into the directory 'adapterOutput'
@@ -45,7 +44,14 @@ java -cp $cp differ.SemanticDiffer -cp cpplaceholder -w -firstDest renamedOrigin
     * redefcp, originalcp, mainClass
 
 
-## How to test:
-  * build the application first
-  * go to test directory
-  * run `./test.sh <path to rt.jar:path to jce.jar>`
+## Testing:
+   * tests can be run with: `mvn test`
+   * testing requires additional heap, currently set in `pom.xml`, minimum required is 1gb
+   * to run only one test: `mvn -Dtest=ValidationTest#testRunFieldAddition test`
+   * to expand the testset:
+     1) create the **patch version** to use as a test class in `src/main/java/testexamples/`
+     2) get the classfile for that, i.e., `mvn compile`
+     3) find the classfile for the new patch (`find . -name X.class`), then copy it and its source to `src/main/java/patch/testexamples/'
+     4) rename the package for the source in `src/main/java/patch/testexamples/` to `patch.testexamples` so that when this recompiles when rebuilding the project, it does not conflict with original version of same class
+     5) now create the corresponding **original version** of that class in `src/main/java/testexamples/`
+     6) add corresponding tests for this added setup
