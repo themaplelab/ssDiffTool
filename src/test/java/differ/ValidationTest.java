@@ -45,7 +45,7 @@ public class ValidationTest {
 
     @Test
      public void testRunMethodAdditionMonomorphic() throws Throwable {
-	String mainClass = "testexamples.AdditionMethodMonomorphicTest";
+	String mainClass = "testexamples.methodadditionmonomorphic.AdditionMethodMonomorphicTest";
 	String[] classes = {mainClass};
 
         TestSetup.makeListFiles(classes);
@@ -59,7 +59,7 @@ public class ValidationTest {
         java.lang.reflect.Method methodHandleOne = clazz.getMethod("returnSamePlusSeven", int.class);
         Assert.assertNotNull(methodHandleOne);
         Assert.assertEquals(8, methodHandleOne.invoke(obj, 1));
-	TestSetup.testSetupRefresh("testexamples/");
+	TestSetup.testSetupRefresh("testexamples/methodadditionmonomorphic");
     }
     
     @Test
