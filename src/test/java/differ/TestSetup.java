@@ -10,6 +10,7 @@ import java.util.List;
 
 import java.lang.Thread;
 
+import soot.G;
 import differ.SemanticDiffer;
 
 public class TestSetup {
@@ -20,7 +21,6 @@ public class TestSetup {
     private static final String renamedDir = resources + "/renamedOriginals"; //for first setup patch adapter output                                                                                       
     private static final String normalCp = prefix + "/target/classes/";
     private static final String redefDir = prefix +"/src/main/java/patch"; //for patch classes 
-    private static final String packagePrefix = "/testexamples/";
     
     public static void makeListFiles(String[] classes) throws Throwable {
 	String mainClass = classes[0];
@@ -50,11 +50,11 @@ public class TestSetup {
 	
     }
 
-    public static void testSetupRefresh(){
+    public static void testSetupRefresh(String packagePrefix){
 	//first the prev run adapter outputs 
-	deleteFiles(output+packagePrefix);
+	deleteFiles(output+ "/" +packagePrefix);
 	//then the renamed temp outputs
-	deleteFiles(renamedDir+packagePrefix);
+	deleteFiles(renamedDir+ "/" +packagePrefix);
 	//reset Soot, aka the Scene and loaded classes
 	G.reset();
     }
@@ -84,9 +84,10 @@ public class TestSetup {
 
     //https://github.com/Sable/soot/blob/master/src/test/java/soot/jimple/MethodHandleTest.java#L134
     public static Class<?> validateClassFile(String className) throws MalformedURLException, ClassNotFoundException {
-	// Make sure the classfile is actually valid...                                        
-	URLClassLoader classLoader = new URLClassLoader(new URL[] { new File(output).toURI().toURL() }, null);
-	
+	// Make sure the classfile is actually valid...
+	URL adapterOut = new File(output).toURI().toURL();
+	URL leftoverNotChangedPatchClasses = new File(redefDir).toURI().toURL();
+	URLClassLoader classLoader = new URLClassLoader(new URL[] {  adapterOut, leftoverNotChangedPatchClasses }, null);	
 	return classLoader.loadClass(className);
     }
 
