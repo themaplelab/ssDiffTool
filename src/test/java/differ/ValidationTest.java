@@ -6,7 +6,7 @@ import org.junit.Assert;
 public class ValidationTest {
 
 	@Test
-	public void testRunRename() throws Throwable {
+	public void aTestRunRename() throws Throwable {
 	    String mainClass = "testexamples.NoChangeTest";
 	    String[] classes = {mainClass};	    
 
@@ -21,7 +21,7 @@ public class ValidationTest {
 	}
 
     @Test
-    public void testRunFieldAddition() throws Throwable {
+    public void bTestRunFieldAddition() throws Throwable {
 	String mainClass = "testexamples.AdditionFieldTest";
 	String[] classes = {mainClass};
 
@@ -44,7 +44,7 @@ public class ValidationTest {
     }
 
     @Test
-     public void testRunMethodAdditionMonomorphic() throws Throwable {
+     public void cTestRunMethodAdditionMonomorphic() throws Throwable {
 	String mainClass = "testexamples.methodadditionmonomorphic.AdditionMethodMonomorphicTest";
 	String[] classes = {mainClass};
 
@@ -63,7 +63,7 @@ public class ValidationTest {
     }
     
     @Test
-    public void testRunMethodAdditionPolymorphic() throws Throwable {
+    public void dTestRunMethodAdditionPolymorphic() throws Throwable {
 	String mainClass = "testexamples.methodadditionpolymorphic.UserPolyTest";
         String[] classes = {mainClass,
 			    "testexamples.methodadditionpolymorphic.AdditionMethodPolymorphicTestChildOne",
@@ -88,6 +88,47 @@ public class ValidationTest {
 	Assert.assertEquals(2, methodHandleOne.invoke(obj, 2));
         Assert.assertEquals(2, methodHandleOne.invoke(obj, 4));
 	TestSetup.testSetupRefresh("testexamples/methodadditionpolymorphic");
+    }
+
+    @Test
+    public void fTestRunMethodRemoval() throws Throwable {
+        String mainClass = "testexamples.methodremoval.UserPolyTest";
+        String[] classes = {mainClass,
+                            "testexamples.methodremoval.AdditionMethodPolymorphicTestChildOne",
+                            "testexamples.methodremoval.AdditionMethodPolymorphicTestChildThree",
+                            "testexamples.methodremoval.AdditionMethodPolymorphicTestChildSix"};
+
+        TestSetup.makeListFiles(classes);
+        String[] differArgs =  TestSetup.setup(mainClass);
+        TestSetup.runAdapter(Arrays.asList(mainClass), differArgs);
+
+        Class<?> clazz = TestSetup.validateClassFile(mainClass);
+
+        Object obj = clazz.newInstance();
+
+        java.lang.reflect.Method methodHandleOne = clazz.getMethod("use", int.class);
+        Assert.assertNotNull(methodHandleOne);
+	Assert.assertEquals(0, methodHandleOne.invoke(obj, 0));
+        Assert.assertEquals(0, methodHandleOne.invoke(obj, 1));
+	Assert.assertEquals(0, methodHandleOne.invoke(obj, 5));
+        Assert.assertEquals(0, methodHandleOne.invoke(obj, 3));
+        Assert.assertEquals(2, methodHandleOne.invoke(obj, 6));
+        Assert.assertEquals(2, methodHandleOne.invoke(obj, 2));
+        Assert.assertEquals(2, methodHandleOne.invoke(obj, 4));
+
+	Class<?> childOne = TestSetup.validateClassFile("testexamples.methodremoval.AdditionMethodPolymorphicTestChildOne");
+	java.lang.reflect.Method methodHandleRMOne = childOne.getMethod("emitMethod");
+	Assert.assertEquals("testexamples.methodremoval.AdditionMethodPolymorphicTestChildOne", methodHandleRMOne.getDeclaringClass().getName());
+
+	 Class<?> childThree = TestSetup.validateClassFile("testexamples.methodremoval.AdditionMethodPolymorphicTestChildThree");
+        java.lang.reflect.Method methodHandleRMThree = childThree.getMethod("emitMethod");
+        Assert.assertEquals("testexamples.methodremoval.AdditionMethodPolymorphicTestChildThree", methodHandleRMThree.getDeclaringClass().getName());
+
+	Class<?> childSix = TestSetup.validateClassFile("testexamples.methodremoval.AdditionMethodPolymorphicTestChildSix");
+        java.lang.reflect.Method methodHandleRMSix = childSix.getMethod("emitMethod");
+        Assert.assertEquals("testexamples.methodremoval.AdditionMethodPolymorphicTestChildSix", methodHandleRMSix.getDeclaringClass().getName());
+	
+	//TestSetup.testSetupRefresh("testexamples/methodremoval");
     }
 }
 
