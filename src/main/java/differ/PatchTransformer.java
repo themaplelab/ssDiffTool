@@ -1050,5 +1050,64 @@ public class PatchTransformer{
 			}
 		}
 	}
+
+    /*
+     * Replaces a method body with a call to the super method only
+     * for the case where a patch removes a method and we want
+     * to preserve the intention of the patch, but rm'ing the method
+     * made it redefinition non-compliant
+     * in this case the removal of a method means calls that would
+     * have resolved to that removed method now resolve to the parent
+     *
+     * unless there is no parent and refs are assumed to be rm'd
+     * in which case, it is safe to simply re-add the method body, no harm
+     */
+    public static void fixRemovedMethods(SootMethod m){
+	SootMethodRef parentMethodRef = findNearestImplementingParent(m);
+	
+	if(parentMethodRef != null){
+	
+	    JimpleBody newBody = Jimple.v().newBody(m);
+	    Chain units = newBody.getUnits();
+
+	    Local selfref =  Jimple.v().newLocal("selfref", m.getDeclaringClass().getType());
+	    newBody.getLocals().add(selfref);
+	    units.addFirst(Jimple.v().newIdentityStmt(selfref, new ThisRef(m.getDeclaringClass().getType())));
+
+	    List<Local> args = new ArrayList<Local>();
+	
+	    for(int i = 0; i < m.getParameterCount(); i++){
+		Local paramref =  Jimple.v().newLocal("paramref", m.getParameterType(i));
+		newBody.getLocals().add(paramref);
+		units.add(Jimple.v().newIdentityStmt(paramref, Jimple.v().newParameterRef(m.getParameterType(i), i)));
+		args.add(paramref);
+	    }
+
+	    if(m.getReturnType() instanceof VoidType){
+		units.add(Jimple.v().newInvokeStmt(Jimple.v().newSpecialInvokeExpr(selfref, parentMethodRef, args)));
+		units.add(Jimple.v().newReturnVoidStmt());
+	    } else {
+		Local ret = Jimple.v().newLocal("retValue", m.getReturnType());
+		newBody.getLocals().add(ret);
+		units.add(Jimple.v().newAssignStmt(ret, Jimple.v().newSpecialInvokeExpr(selfref, parentMethodRef, args)));
+		units.add(Jimple.v().newReturnStmt(ret));
+	    }
+
+	    m.setActiveBody(newBody);
+	}
+    }
+
+    private static SootMethodRef findNearestImplementingParent(SootMethod m){
+	SootClass parent = m.getDeclaringClass().getSuperclass();
+	while(parent != null){
+	    SootMethodRef parentMethodRef = parent.getMethod(m.getName(), m.getParameterTypes(), m.getReturnType()).makeRef();
+	    if(parentMethodRef != null){
+		return parentMethodRef;
+	    } else {
+		parent = parent.getSuperclass();
+	    }
+	}
+	return null;
+    }
 	
 }
