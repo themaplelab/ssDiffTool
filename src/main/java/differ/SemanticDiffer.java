@@ -59,11 +59,13 @@ public class SemanticDiffer{
 	private static HashMap<SootClass, List<CheckSummary>> redefToDiffSummary = new HashMap<SootClass, List<CheckSummary>>();
 
     private static ArrayList<String> allOGNames = new ArrayList<String>();
+    private static ArrayList<String> allOGNamesRenamed = new ArrayList<String>();
     
 	public static void main(String[] args) throws ParseException {
 
 	    //reset if previously run
 	    allOGNames.clear();
+	    allOGNamesRenamed.clear();
 	    
 		//doesnt die on unknown options, will pass them to soot
 		RelaxedParser parser = new RelaxedParser();
@@ -98,8 +100,15 @@ public class SemanticDiffer{
 		if(options.hasOption("runRename") && options.getOptionValue("runRename").equals("true")) {
 			PackManager.v().getPack("wjtp").add(new Transform("wjtp.renameTransform", createRenameTransformer(options1)));
 			System.out.println("DIFFER these were the first two options:" + options1.get(0) + "AND " + options1.get(1));
-			for(int i =2; i < options1.size(); i++){
+			//trust that if differ is already running with cp options, this run can share those, otherwise soot will fail. if not the case, run sequential runs.
+			if(Options.v().soot_classpath().isEmpty()){
+			    for(int i =0; i < options1.size(); i++){
 				options1final.add(options1.get(i));
+			    }
+			} else {
+			    for(int i =2; i < options1.size(); i++){
+                                options1final.add(options1.get(i));
+                            }
 			}
 
 			System.out.println("First soot has these options: " + options1final);
@@ -189,7 +198,7 @@ public class SemanticDiffer{
 
 				Scene.v().setSootClassPath(options.getOptionValue("redefcp")+":"+Scene.v().getSootClassPath());
 				System.err.println("classpath before redef classes load: "+ Scene.v().getSootClassPath());
-				ArrayList<SootClass> allRedefs = gatherClassesFromDir(options.getOptionValue("redefcp")+"/"+mainClassPackageName, mainClassPackageName.replace("/", "."));
+				ArrayList<SootClass> allRedefs = gatherClassesFromDir(options.getOptionValue("redefcp")+"/"+mainClassPackageName, mainClassPackageName.replace("/", "."), allOGNames);
 				for(SootClass redef : allRedefs){
 					//this is so that the redef classes will also get output'd by soot
 					redef.setApplicationClass();
@@ -201,7 +210,7 @@ public class SemanticDiffer{
 				
 				Scene.v().setSootClassPath(renameResultDir+":"+Scene.v().getSootClassPath());
 				System.err.println("classpath before renamed classes load: "+ Scene.v().getSootClassPath());
-				ArrayList<SootClass> allOriginals = gatherClassesFromDir(renameResultDir + "/"+mainClassPackageName, mainClassPackageName.replace("/", "."));
+				ArrayList<SootClass> allOriginals = gatherClassesFromDir(renameResultDir + "/"+mainClassPackageName, mainClassPackageName.replace("/", "."), allOGNamesRenamed);
 
 				//for(SootClass og : allOriginals){
 					//this is so the classes dont get set as phantom?
@@ -231,8 +240,10 @@ public class SemanticDiffer{
 					SootClass newClass = newClassMap.get(redef);
 					//if there is a host for the super, set that as its host's super                               
                     if(newClassMap.get(redef.getSuperclass()) != null){
+			System.out.println("New class map not null - Setting the newclass's super, new is: " + newClass.getName() + "super is: " + newClassMap.get(redef.getSuperclass()) );
                         newClass.setSuperclass(newClassMap.get(redef.getSuperclass()));
                     } else {
+			System.out.println("Setting the newclass's super, new is: " + newClass.getName() + "super is: " + redef.getSuperclass().getName());
 						newClass.setSuperclass(redef.getSuperclass());
                     }
 
@@ -508,6 +519,10 @@ public class SemanticDiffer{
 					m.setDeclared(false);
 					redefinition.addMethod(m);
 				}
+				for(Object generic : methodSummary.removedList){
+				    SootMethod m = (SootMethod)generic;
+				    patchTransformer.fixRemovedMethods(m);
+				}
 			}else if (!methodSummary.changes){
 				System.err.println("\tNo Method differences!");
 			}
@@ -541,7 +556,7 @@ public class SemanticDiffer{
 	}
 
 	//resolves all of the classes in some dir that defines the patch (== set of classes)
-	private static ArrayList<SootClass> gatherClassesFromDir(String strdir, String packagename){
+    private static ArrayList<SootClass> gatherClassesFromDir(String strdir, String packagename, ArrayList<String> OGList){
 		System.out.println("Gathering classes from : "+ strdir);
 		ArrayList<String> allNames = new ArrayList<String>();
 		try{
@@ -556,13 +571,13 @@ public class SemanticDiffer{
 							//no package prefix
 							String[] namepieces = file.toString().replace(".class", "").split("/");
 							classname = namepieces[namepieces.length-1];
-							if(allOGNames.contains(classname)){
+							if(OGList.contains(classname)){
 							    System.out.println("Gathering class: "+ classname);
 							    allNames.add(classname);
 							}
 						}else{
 						    classname = file.toString().replaceFirst(strdir , "").replace(".class", "").replaceAll("\\/", ".");
-						    if(allOGNames.contains(packagename+classname)){
+						    if(OGList.contains(packagename+classname)){
 							System.out.println("Gathering class: "+ packagename+classname);
 							allNames.add(packagename+classname);
 						    }
@@ -595,7 +610,8 @@ public class SemanticDiffer{
 						String name = str.replace(".class", "").replaceAll("\\/", ".");
 						if(!allOGNames.contains(name)){
 						    allOGNames.add(name);
-							loadedRenamedClasses.add(name);
+						    allOGNamesRenamed.add(name+originalRenameSuffix);
+						    loadedRenamedClasses.add(name);
 						}
 					}
 					allClasses = resolveClasses(allOGNames);
