@@ -166,7 +166,8 @@ public class PatchTransformer{
 						//more than one target
 							for(SootMethod target : sortedTargets){
 								System.out.println("This target is one we are fixing: "+ target);
-								constructGuard(target, body , units, insnAfterInvokeInsn, u);
+								boolean lastCheck = (sortedTargets.indexOf(target) == sortedTargets.size() - 1) ? true : false;
+								constructGuard(target, body , units, insnAfterInvokeInsn, u, lastCheck);
 							}
 							System.out.println("Removing statement: "+ u);
 							units.remove(u);
@@ -213,14 +214,18 @@ public class PatchTransformer{
 			SootMethod target = (SootMethod) newTargets.next();
 			System.out.println("This is a target out of the iterator: "+ target);
 			if(target.getDeclaringClass()!= object){
-				if(!unsorted.containsKey(target.getDeclaringClass().getSuperclass())){
-					unsorted.put(target.getDeclaringClass().getSuperclass(), new LinkedHashSet<SootClass>());
+			    SootClass targetSuper = target.getDeclaringClass().getSuperclass();
+			    if(newToRedefClassMap.get(targetSuper)!= null){
+				targetSuper = newToRedefClassMap.get(targetSuper);
+			    }
+				if(!unsorted.containsKey(targetSuper)){
+					unsorted.put(targetSuper, new LinkedHashSet<SootClass>());
 				}
 				SootClass toAdd = target.getDeclaringClass();
 				if(newToRedefClassMap.get(toAdd)!= null){
 					toAdd = newToRedefClassMap.get(toAdd);
 				}
-				unsorted.get(target.getDeclaringClass().getSuperclass()).add(toAdd);
+				unsorted.get(targetSuper).add(toAdd);
 				unsortedDeclToMethods.put(toAdd, target);
 			}
 		}
@@ -242,7 +247,7 @@ public class PatchTransformer{
 	private void traverseChildren(ArrayList<SootClass> sortedHierarchy, HashMap<SootClass, LinkedHashSet<SootClass>> unsorted, SootClass index){
 		if(unsorted.get(index) != null){
 			for(SootClass child : unsorted.get(index)){
-                sortedHierarchy.add(0, child);
+			    sortedHierarchy.add(0, child);
             }
 			for(SootClass child : unsorted.get(index)){
 				traverseChildren(sortedHierarchy, unsorted, child);
@@ -300,7 +305,7 @@ public class PatchTransformer{
 	 * ```
 	 *
 	 */
-	private void constructGuard(SootMethod target, Body body, PatchingChain<Unit> units, Unit insnAfterInvokeInsn, Unit currentInsn){
+    private void constructGuard(SootMethod target, Body body, PatchingChain<Unit> units, Unit insnAfterInvokeInsn, Unit currentInsn, boolean lastCheck){
 		InvokeExpr invokeExpr = ((Stmt)currentInsn).getInvokeExpr();
 		//already performed the steal by now, so the current decl class is correct          
 		SootClass newClass = target.getDeclaringClass();
@@ -311,33 +316,37 @@ public class PatchTransformer{
 		Unit newBlock;
 		Type checkType;
 
-		//create the check
 		Local base = (Local)((InstanceInvokeExpr)invokeExpr).getBase();
-        Local boolInstanceOf = Jimple.v().newLocal("boolInstanceOf", BooleanType.v());
-        body.getLocals().add(boolInstanceOf);
-
 		NopStmt nop = Jimple.v().newNopStmt();
-		checkType = newClass.getType();
-		if(originalClass != null){
-			checkType =originalClass.getType();
+		
+		//create the check
+		if(!lastCheck){
+		    Local boolInstanceOf = Jimple.v().newLocal("boolInstanceOf", BooleanType.v());
+		    body.getLocals().add(boolInstanceOf);
+
+		    checkType = newClass.getType();
+		    if(originalClass != null){
+			    checkType =originalClass.getType();
+		    }
+		    units.insertBefore(Jimple.v().newAssignStmt(boolInstanceOf, Jimple.v().newInstanceOfExpr(base , checkType)) , currentInsn);
+		    units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(boolInstanceOf, IntConstant.v(0)), nop), currentInsn);
+
+
+
+
+		    //create the new block that contains the call to the new method
+		    System.out.println("This is the newclass getType: "+  newClass.getType());
+
+		    //maybe TODO: fix this for the methodrefs in the added methods, those should just use "this" not new local
+
+		    //TEMP printcall so we can understand this bla
+		    Local tmpRef = Jimple.v().newLocal("tmpRef", RefType.v("java.io.PrintStream"));
+		    body.getLocals().add(tmpRef);
+		    units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef(Scene.v().getField("<java.lang.System: java.io.PrintStream out>").makeRef())), currentInsn);
+		    SootMethod toCall = Scene.v().getMethod("<java.io.PrintStream: void println(java.lang.String)>");
+		    units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(tmpRef, toCall.makeRef(), StringConstant.v("Detected an instanceof condition!"))), currentInsn);
+
 		}
-		units.insertBefore(Jimple.v().newAssignStmt(boolInstanceOf, Jimple.v().newInstanceOfExpr(base , checkType)) , currentInsn);
-		units.insertBefore(Jimple.v().newIfStmt(Jimple.v().newEqExpr(boolInstanceOf, IntConstant.v(0)), nop), currentInsn);
-
-
-
-		
-		//create the new block that contains the call to the new method
-		System.out.println("This is the newclass getType: "+  newClass.getType());
-		
-		//maybe TODO: fix this for the methodrefs in the added methods, those should just use "this" not new local
-
-		//TEMP printcall so we can understand this bla
-		Local tmpRef = Jimple.v().newLocal("tmpRef", RefType.v("java.io.PrintStream"));
-		body.getLocals().add(tmpRef);
-		units.insertBefore(Jimple.v().newAssignStmt(tmpRef, Jimple.v().newStaticFieldRef(Scene.v().getField("<java.lang.System: java.io.PrintStream out>").makeRef())), currentInsn);
-		SootMethod toCall = Scene.v().getMethod("<java.io.PrintStream: void println(java.lang.String)>");
-		units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(tmpRef, toCall.makeRef(), StringConstant.v("Detected an instanceof condition!"))), currentInsn);
 		
 		if(originalClass == null){
 
@@ -345,16 +354,23 @@ public class PatchTransformer{
 			invokeobj =  Jimple.v().newLocal("baseinvokeobj", newClass.getType());
 			body.getLocals().add(invokeobj);
 			units.insertBefore(Jimple.v().newAssignStmt(invokeobj, Jimple.v().newCastExpr(base, newClass.getType())), currentInsn);
-			units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
-			
+			 if(currentInsn instanceof AssignStmt){
+			     units.insertBefore(Jimple.v().newAssignStmt(((AssignStmt)currentInsn).getLeftOp(), Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
+			 } else {
+			     units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
+			 }
 
 			
 
 		}else{
 
 			invokeobj = lookup(newClass, newClass, body, units, currentInsn, base, ogToHostHashTableName);
-			//build the new call 
-			units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
+			//build the new call
+			if(currentInsn instanceof AssignStmt){
+			    units.insertBefore(Jimple.v().newAssignStmt(((AssignStmt)currentInsn).getLeftOp(), Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
+			} else {
+			    units.insertBefore(Jimple.v().newInvokeStmt(Jimple.v().newVirtualInvokeExpr(invokeobj, target.makeRef(), invokeExpr.getArgs())), currentInsn);
+			}
 
 		}
 
