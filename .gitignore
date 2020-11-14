@@ -1,5 +1,5 @@
 *~
 target
-*.class
 *.jar
-test/testoutputs/
+test/
+*originalclasses.out
