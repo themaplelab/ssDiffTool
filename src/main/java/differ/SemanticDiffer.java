@@ -66,6 +66,7 @@ public class SemanticDiffer{
 	    //reset if previously run
 	    allOGNames.clear();
 	    allOGNamesRenamed.clear();
+	    originalToRedefinitionClassMap.clear();
 	    
 		//doesnt die on unknown options, will pass them to soot
 		RelaxedParser parser = new RelaxedParser();
@@ -75,26 +76,26 @@ public class SemanticDiffer{
 		List<String> options1final = new ArrayList<String>();
 		List<String> options2final = new ArrayList<String>();
 		
-		if(options.hasOption("altDest") && !options.hasOption("firstDest")) {
-			System.out.println("Using output dir for both soot runs: "+ options.getOptionValue("altDest"));
+		if(options.hasOption("finalDestination") && !options.hasOption("renameDestination")) {
+			System.out.println("Using output dir for both soot runs: "+ options.getOptionValue("finalDestination"));
 			parser.getLeftovers(options2);
 			options1.add("-d");
-			options1.add(options.getOptionValue("altDest"));
-			renameResultDir = options.getOptionValue("altDest");
-		}else if(!options.hasOption("altDest") && options.hasOption("firstDest")){
-			System.out.println("Using output dir for both soot runs: "+ options.getOptionValue("firstDest"));
+			options1.add(options.getOptionValue("finalDestination"));
+			renameResultDir = options.getOptionValue("finalDestination");
+		}else if(!options.hasOption("finalDestination") && options.hasOption("renameDestination")){
+			System.out.println("Using output dir for both soot runs: "+ options.getOptionValue("renameDestination"));
 			parser.getLeftovers(options1);
 			options1.add("-d");
-            options1.add(options.getOptionValue("firstDest"));
-			renameResultDir = options.getOptionValue("firstDest");
-		} else if(options.hasOption("altDest") && options.hasOption("firstDest")){
+            options1.add(options.getOptionValue("renameDestination"));
+			renameResultDir = options.getOptionValue("renameDestination");
+		} else if(options.hasOption("finalDestination") && options.hasOption("renameDestination")){
 			parser.getLeftovers(options1);
 			options1.add("-d");
-            options1.add(options.getOptionValue("firstDest"));
-			renameResultDir = options.getOptionValue("firstDest");
+            options1.add(options.getOptionValue("renameDestination"));
+			renameResultDir = options.getOptionValue("renameDestination");
 			parser.getLeftovers(options2);
             options2.add("-d");
-            options2.add(options.getOptionValue("altDest"));
+            options2.add(options.getOptionValue("finalDestination"));
 		}
 
 		if(options.hasOption("runRename") && options.getOptionValue("runRename").equals("true")) {
@@ -130,7 +131,7 @@ public class SemanticDiffer{
 							
 			Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":"+options1.get(1));
 			
-			Options.v().set_output_dir(options.getOptionValue("altDest"));
+			Options.v().set_output_dir(options.getOptionValue("finalDestination"));
 			Options.v().set_allow_phantom_refs(true);
 			Options.v().setPhaseOption("cg", "all-reachable:true");
 

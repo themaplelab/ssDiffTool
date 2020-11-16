@@ -44,7 +44,7 @@ public class TestSetup {
 	String rt = System.getProperty("java.home") + "/lib/rt.jar";
 	String cp = normalCp + ":" + redefDir + ":" + rt + ":" + jce;
 	
-	String[] differArgs = { "-cp", cp, "-w", "-firstDest", renamedDir, "-altDest", output, "-redefcp", redefDir, "-runRename", "true", "-mainClass", mainClass, "-originalclasslist", prefix + "/" + mainClass + ".originalclasses.out", "Example"};
+	String[] differArgs = { "-cp", cp, "-w", "-renameDestination", renamedDir, "-finalDestination", output, "-redefcp", redefDir, "-runRename", "true", "-mainClass", mainClass, "-originalclasslist", prefix + "/" + mainClass + ".originalclasses.out", "Example"};
 	System.out.println("Command Line: " + Arrays.toString(differArgs));
 	return differArgs;
 	
