@@ -1,4 +1,4 @@
-package patch.testexamples;
+package patch.testexamples.nochange;
 //only held in diff package so that two variants can exist simultaneous
 
 public class NoChangeTest {

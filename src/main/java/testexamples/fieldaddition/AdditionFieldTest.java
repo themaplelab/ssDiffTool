@@ -1,4 +1,4 @@
-package testexamples;
+package testexamples.fieldaddition;
 
 public class AdditionFieldTest {
 

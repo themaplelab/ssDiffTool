@@ -1,4 +1,4 @@
-package testexamples;
+package testexamples.nochange;
 
 public class NoChangeTest {
 

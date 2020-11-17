@@ -1,4 +1,4 @@
-package patch.testexamples;
+package patch.testexamples.fieldaddition;
 
 public class AdditionFieldTest {
 
