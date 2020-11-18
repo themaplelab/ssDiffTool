@@ -3,3 +3,4 @@ target
 *.jar
 test/
 *originalclasses.out
+**/.DS_Store
