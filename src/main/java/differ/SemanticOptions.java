@@ -28,6 +28,9 @@ public class SemanticOptions extends Options {
 
 		Option differClasspath = Option.builder().longOpt("differClasspath").hasArg().desc("Specify the classpath for the patch adapter's run of Soot. May be different than that of a Cogni+Soot run, if patch adapter is run from HOTFIXER.").build();
 		addOption(differClasspath);
+
+		Option useFullDir = Option.builder().longOpt("useFullDir").hasArg().desc("Specify whether Soot's process-dir option should be used or not.").build();
+                addOption(useFullDir);
 		
 	}
 
