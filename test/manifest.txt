@@ -1,2 +1,0 @@
-Premain-Class: TransformTestAgent
-Can-Redefine-Classes: true
