@@ -60,6 +60,8 @@ public class SemanticDiffer{
 
     private static ArrayList<String> allOGNames = new ArrayList<String>();
     private static ArrayList<String> allOGNamesRenamed = new ArrayList<String>();
+    private static ArrayList<SootClass> allRedefs = new ArrayList<SootClass>();
+    private static HashMap<SootClass, ArrayList<SootMethod>> allRemovedMethods = new  HashMap<SootClass, ArrayList<SootMethod>>();
     
 	public static void main(String[] args) throws ParseException {
 
@@ -102,6 +104,8 @@ public class SemanticDiffer{
 			PackManager.v().getPack("wjtp").add(new Transform("wjtp.renameTransform", createRenameTransformer(options1)));
 			System.out.println("DIFFER these were the first two options:" + options1.get(0) + "AND " + options1.get(1));
 			//trust that if differ is already running with cp options, this run can share those, otherwise soot will fail. if not the case, run sequential runs.
+			System.out.println("SYSTEM OPTIONS");
+			System.out.println(Options.v().soot_classpath());
 			if(Options.v().soot_classpath().isEmpty()){
 			    for(int i =0; i < options1.size(); i++){
 				options1final.add(options1.get(i));
@@ -111,7 +115,11 @@ public class SemanticDiffer{
                                 options1final.add(options1.get(i));
                             }
 			}
-
+			if(!Options.v().output_dir().isEmpty()){
+			    options1final.remove("-d");
+			    options1final.remove(options1final.size()-1);
+			}
+			
 			System.out.println("First soot has these options: " + options1final);
 			soot.Main.main(options1final.toArray(new String[0]));
 			//not sure if this is needed
@@ -121,30 +129,40 @@ public class SemanticDiffer{
 		if(doDiff){ //means that there was something to rename
 			PackManager.v().getPack("wjtp").add(new Transform("wjtp.myTransform", createDiffTransformer()));
 			options2final.add("-w");
-
+			
 			//TODO fix this to actually use the full loaded patch list with patch adapter, currently looks at one class only here
-			if(loadedRenamedClasses.size() == 1 && !loadedRenamedClasses.contains(options.getOptionValue("mainClass"))){
-				options2final.add( loadedRenamedClasses.get(0));
-			} else {
-				options2final.add( options.getOptionValue("mainClass"));
+			if(options.hasOption("useFullDir") && options.getOptionValue("useFullDir").equals("true")){
+			    options2final.add("-process-dir");
+			    options2final.add(options.getOptionValue("redefcp"));
+			}else{
+			    if(loadedRenamedClasses.size() == 1 && !loadedRenamedClasses.contains(options.getOptionValue("mainClass"))){
+				    options2final.add( loadedRenamedClasses.get(0));
+				} else {
+				    options2final.add( options.getOptionValue("mainClass"));
+				}
 			}
-							
+			    
 			Options.v().set_soot_classpath(options.getOptionValue("redefcp")+ ":"+options1.get(1));
 			
 			Options.v().set_output_dir(options.getOptionValue("finalDestination"));
 			Options.v().set_allow_phantom_refs(true);
 			Options.v().setPhaseOption("cg", "all-reachable:true");
 
-			
+			System.out.println("PRE SECOND RUN ENTRY POINTS");
+			System.out.println(Scene.v().hasCustomEntryPoints());
 			System.out.println("Second soot has these options: " + options2final);
 			System.out.println("Second soot has this classpath (newvs): "+ Scene.v().getSootClassPath());
+			System.err.println("These are all of the classes before second soot: ");
+                                        System.err.println(Scene.v().getClasses());
+                                        System.err.println("----------------------------------------------");
 			soot.Main.main(options2final.toArray(new String[0]));
 		}
 	}
 
-	public static void setClasses(List<String> classes){
-		originalClassesList = classes; 
-	}
+    public static void setClasses(List<String> classes){
+	originalClassesList = classes;
+    }
+    
 	
 	private static Transformer createRenameTransformer(List<String> options1){
 		return new SceneTransformer() {
@@ -166,6 +184,9 @@ public class SemanticDiffer{
 					System.err.println("This is the soot class path atm: "+ Scene.v().getSootClassPath());
 					System.err.println("These are all of the classes right now: ");
 					System.err.println(Scene.v().getClasses());
+					System.err.println("----------------------------------------------");
+					System.err.println("These are all of application classes: ");
+					System.err.println(Scene.v().getApplicationClasses());
 				} else{
 					System.err.println("Did not receive a list of classes to rename");
 					doDiff = false;
@@ -177,8 +198,9 @@ public class SemanticDiffer{
 	private static Transformer createDiffTransformer(){
 		return new SceneTransformer() {
 			protected void internalTransform(String phaseName, Map originalOptions) {
+			    //Scene.v().setSootClassPath(renameResultDir+":"+Scene.v().getSootClassPath());
 
-				List<String> mainClassPackageNameComponents = new ArrayList<String>();
+			    List<String> mainClassPackageNameComponents = new ArrayList<String>();
 				String[] mainClassPackageNameComponentsAll;
 				//todo fix for full list
 				if(loadedRenamedClasses.size() == 1 && !loadedRenamedClasses.contains(options.getOptionValue("mainClass"))){
@@ -223,6 +245,9 @@ public class SemanticDiffer{
 
 				System.err.println("Resulting classes: ");
 				System.err.println(Scene.v().getApplicationClasses());
+			    
+			    System.err.println("Resulting classes after at beginning of diff phase: ");
+                                System.err.println(Scene.v().getApplicationClasses());
 
 				patchTransformer = new PatchTransformer(newClassMap, newClassMapReversed);
 
@@ -260,6 +285,12 @@ public class SemanticDiffer{
 				}
 				//now? fix all of the method references everywhere, in classes we are outputting
 				for(SootClass redef : allRedefs){
+
+				    if(allRemovedMethods.get(redef) != null){
+					System.out.println("Fixing references in removed methods");
+					System.out.println(redef.getName() + " " + allRemovedMethods.get(redef));
+					patchTransformer.fixRemovedMethods(allRemovedMethods.get(redef));
+				    }
 					//patchTransformer.transformMethodCalls(redef.getMethods(), redefToDiffSummary.get(redef)[0].addedList);
 					patchTransformer.transformMethodCalls(redef.getMethods(), true);
 					//might need to omit the init and clinit on this one?
@@ -498,7 +529,7 @@ public class SemanticDiffer{
 			if (originalToRedefinitionMap.size() == 0){
 				methodSummary.changes = false;
 			} else{
-				methodSummary.changes = true;
+			    methodSummary.changes = true;
 			}
 			
 			return methodSummary;
@@ -512,6 +543,7 @@ public class SemanticDiffer{
 				//also fix the instance method refs that exist in stolen methods, since "this" is now wrong                     
 				patchTransformer.fixMethodRefsInAddedMethods(redefinition, methodSummary.addedList);
 			}else if(methodSummary.removedList.size() != 0){
+			    allRemovedMethods.put(redefinition, new ArrayList<SootMethod>());
 				System.err.println("\tMethod(s) has been removed");
 				System.err.println(methodSummary.removedList);
 				for(Object generic : methodSummary.removedList){
@@ -519,10 +551,7 @@ public class SemanticDiffer{
 					SootMethod m = (SootMethod)generic;
 					m.setDeclared(false);
 					redefinition.addMethod(m);
-				}
-				for(Object generic : methodSummary.removedList){
-				    SootMethod m = (SootMethod)generic;
-				    patchTransformer.fixRemovedMethods(m);
+					allRemovedMethods.get(redefinition).add(m);
 				}
 			}else if (!methodSummary.changes){
 				System.err.println("\tNo Method differences!");

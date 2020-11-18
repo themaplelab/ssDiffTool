@@ -15,6 +15,9 @@ import soot.jimple.toolkits.callgraph.ExplicitEdgesPred;
 import soot.jimple.toolkits.callgraph.Filter;
 import soot.jimple.toolkits.callgraph.Targets;
 
+import soot.EntryPoints;
+import soot.jimple.toolkits.callgraph.Edge;
+
 import soot.jimple.Constant;
 import soot.jimple.ClassConstant; //todo check if used
 import soot.jimple.IntConstant;
@@ -118,6 +121,8 @@ public class PatchTransformer{
 		CallGraph cg = Scene.v().getCallGraph();
 		Body body;
 		System.out.println("Finding method calls in : "+ m.getSignature());
+		System.out.println("IS IT AN ENTRY?");
+		System.out.println(cg.isEntryMethod(m));
 		System.out.println("-------------------------------");
 		body = m.retrieveActiveBody();
 
@@ -134,10 +139,25 @@ public class PatchTransformer{
 			if (s.containsInvokeExpr()) {
                 InvokeExpr invokeExpr = s.getInvokeExpr();
 				System.out.println("Found a method call: "+invokeExpr.getMethodRef() );
+				if(invokeExpr.getMethodRef().toString().contains("emitMethod")){
+				    System.out.println("THESE ARE ENTRY POINTS");
+				    System.out.println(Scene.v().getEntryPoints());
+				    System.out.println("ARE THEY CUSTOM?");
+				    System.out.println(Scene.v().hasCustomEntryPoints());
+				    System.out.println(EntryPoints.v().methodsOfApplicationClasses());
+				    System.out.println("THIS WAS APP CLASSES");
+				    System.out.println(Scene.v().getApplicationClasses());
+				}
 				System.out.println("Found in stmt: " + s);
 				System.out.println("Printing the targets of this call: ");
 				System.out.println(".....................................");
 				Iterator targets = new Targets(explicitInvokesFilter.wrap(cg.edgesOutOf(s)));
+				Iterator<Edge> simple = cg.edgesOutOf(s);
+				while(simple.hasNext()){
+				    System.out.println("THIS IS A SIMPLE TARGET");
+				    System.out.println(simple.next().tgt());
+				    
+				}
 				System.out.println(".....................................");
 				if(targets.hasNext()){
 					Iterator newTargets = new Targets(explicitInvokesFilter.wrap(cg.edgesOutOf(s)));
@@ -1078,8 +1098,13 @@ public class PatchTransformer{
      * unless there is no parent and refs are assumed to be rm'd
      * in which case, it is safe to simply re-add the method body, no harm
      */
-    public static void fixRemovedMethods(SootMethod m){
+    public static void fixRemovedMethods(List<SootMethod> methods){
+	for(SootMethod m : methods){
+	    
 	SootMethodRef parentMethodRef = findNearestImplementingParent(m);
+
+	System.out.println("Fixing method refs in a removed method: " + m.getName() + " " + m.getDeclaringClass());
+	System.out.println("Using this parent method ref as replacement: "+ parentMethodRef.getName() + " " + parentMethodRef.getDeclaringClass());
 	
 	if(parentMethodRef != null){
 	
@@ -1111,16 +1136,22 @@ public class PatchTransformer{
 
 	    m.setActiveBody(newBody);
 	}
+	}
     }
 
     private static SootMethodRef findNearestImplementingParent(SootMethod m){
+	SootClass obj = Scene.v().getSootClass("java.lang.Object");
+	if(m.getDeclaringClass() == obj){
+	    return null;
+	}
 	SootClass parent = m.getDeclaringClass().getSuperclass();
 	while(parent != null){
-	    SootMethodRef parentMethodRef = parent.getMethod(m.getName(), m.getParameterTypes(), m.getReturnType()).makeRef();
-	    if(parentMethodRef != null){
+	    SootMethod parentMethod = parent.getMethodUnsafe(m.getName(), m.getParameterTypes(), m.getReturnType());
+	    if(parentMethod != null){
+		SootMethodRef parentMethodRef = parentMethod.makeRef();
 		return parentMethodRef;
 	    } else {
-		parent = parent.getSuperclass();
+		parent = parent.getSuperclassUnsafe();
 	    }
 	}
 	return null;
