@@ -50,7 +50,7 @@ java -cp $cp differ.SemanticDiffer -cp cpplaceholder -w -renameDestination tempD
      1) create the **patch version** to use as a test class in `src/main/java/testexamples/<specific_testset_package_name>`
      2) get the classfile for that, i.e., `mvn compile`
      3) find the classfile for the new patch (`find . -name X.class`), then copy it and its source to `src/main/java/patch/testexamples/<specific_testset_package_name>'
-     4) rename the package for the source in `src/main/java/patch/testexamples/<specific_testset_package_name>` to `patch.testexamples` so that when this recompiles when rebuilding the project, it does not conflict with original version of same class
+     4) rename the package for the source in `src/main/java/testexamplespatch/<specific_testset_package_name>/patch/testexamples/<specific_testset_package_name>` to `patch.testexamples.<specific_testset_package_name>` so that when this recompiles when rebuilding the project, it does not conflict with original version of same class. Additionally they are each in a separate test dir in case the process_dir option of Soot is used during testing (set by useFullDir).
      5) now create the corresponding **original version** of that class in `src/main/java/testexamples/<specific_testset_package_name>`
      6) add corresponding tests for this added setup (see below for important detail)
    * tests are setup to run in alphabetical order, a surefire way to ensure that they are run sequentially. If they are run in parallel, Soot will share many values, as it uses several singletons to model the application and this could cause issues if it is done unintentionally
