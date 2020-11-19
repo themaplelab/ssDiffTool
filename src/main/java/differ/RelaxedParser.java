@@ -44,14 +44,14 @@ public class RelaxedParser extends DefaultParser {
                 knownArguments.add(arguments[i]);
 				knownArguments.add(arguments[i+1]);
 				i++;
-            }else{
+            } else {
 				leftoverArgs.add(arguments[i]);
 			}
         }
         return super.parse(options, knownArguments.toArray(new String[knownArguments.size()]));
     }
 
-	//doesnt want to simply return the reference, others could then modify
+	//doesnt simply return the reference, others could then modify
 	public void getLeftovers(List<String> newUnknowns){
 		for(String arg: leftoverArgs){
 			newUnknowns.add(arg);

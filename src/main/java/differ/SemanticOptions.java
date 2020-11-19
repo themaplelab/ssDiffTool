@@ -27,7 +27,6 @@ import org.apache.commons.cli.Options;
 
 public class SemanticOptions extends Options {
 
-
 	public SemanticOptions() {
 		Option redefinitionClass = Option.builder().longOpt("redefcp").hasArg().required().desc("Specify the classpath of the redefinition classes.").build();
 		addOption(redefinitionClass);
@@ -52,8 +51,7 @@ public class SemanticOptions extends Options {
 		addOption(differClasspath);
 
 		Option useFullDir = Option.builder().longOpt("useFullDir").hasArg().desc("Specify whether Soot's process-dir option should be used or not.").build();
-                addOption(useFullDir);
+        addOption(useFullDir);
 		
 	}
-
 }

@@ -37,6 +37,4 @@ class CheckSummary<T>{
 	public void addRemovedItem(T t){
 		removedList.add(t);
     }
-
-
 }
