@@ -173,17 +173,13 @@ public class SemanticDiffer {
         }
     }
 
-    public static void setClasses(List<String> classes) {
-        originalClassesList = classes;
-    }
-
     private static Transformer createRenameTransformer() {
         return new SceneTransformer() {
-            protected void internalTransform(String phaseName, Map options) {
-                System.out.println("This is the classlist file to use for reading original classes to rename: "
-                        + originalClassesList);
-                if (originalClassesList.size() != 0) {
-                    ArrayList<SootClass> allOG = gatherClassesFromFile(originalClassesList);
+            protected void internalTransform(String phaseName, Map optionsFromTransform) {
+                if (options.hasOption("originalclasslist")) {
+                    System.out.println("This is the classlist file to use for reading original classes to rename: "
+                        + options.getOptionValue("originalclasslist"));
+                    ArrayList<SootClass> allOG = gatherClassesFromFile(options.getOptionValue("originalclasslist"));
 
                     Scene.v().getApplicationClasses().clear();
                     for (SootClass original : allOG) {
@@ -658,26 +654,22 @@ public class SemanticDiffer {
     // fqn.
     // needs to exist bc each class to analyse may require many classes to be
     // patched for it
-    private static ArrayList<SootClass> gatherClassesFromFile(List<String> originalClassesList) {
+    private static ArrayList<SootClass> gatherClassesFromFile(String originalClassesList) {
         ArrayList<SootClass> allClasses = new ArrayList<SootClass>();
         try {
-            for (String classname : originalClassesList) {
-                String filename = Paths.get("").toAbsolutePath().toString() + "/" + classname + ".originalclasses.out";
-                System.out.println("SSDIFF: Searching for patch classes from file: " + filename);
-                if (new File(filename).exists()) {
-                    System.out.println("SSDIFF: Reading patch classes from: " + filename);
-                    BufferedReader in = new BufferedReader(new FileReader(filename));
-                    String str;
-                    while ((str = in.readLine()) != null) {
-                        String name = str.replace(".class", "").replaceAll("\\/", ".");
-                        if (!allOGNames.contains(name)) {
-                            allOGNames.add(name);
-                            allOGNamesRenamed.add(name + originalRenameSuffix);
-                            loadedRenamedClasses.add(name);
-                        }
+            if (new File(originalClassesList).exists()) {
+                System.out.println("SSDIFF: Reading patch classes from: " + originalClassesList);
+                BufferedReader in = new BufferedReader(new FileReader(originalClassesList));
+                String str;
+                while ((str = in.readLine()) != null) {
+                    String name = str.replace(".class", "").replaceAll("\\/", ".");
+                    if (!allOGNames.contains(name)) {
+                        allOGNames.add(name);
+                        allOGNamesRenamed.add(name + originalRenameSuffix);
+                        loadedRenamedClasses.add(name);
                     }
-                    allClasses = resolveClasses(allOGNames);
                 }
+                allClasses = resolveClasses(allOGNames);
             }
         } catch (Exception e) {
             System.out.println("Some issue accessing the classes to be renamed: " + e.getMessage());

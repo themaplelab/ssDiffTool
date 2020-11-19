@@ -114,7 +114,6 @@ public class TestSetup {
     }
 
     public static void runAdapter(List<String> classes, String[] differArgs) {
-        SemanticDiffer.setClasses(classes);
         try {
             SemanticDiffer.main(differArgs);
         } catch (Exception e) {
