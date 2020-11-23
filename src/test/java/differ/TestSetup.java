@@ -44,7 +44,7 @@ public class TestSetup {
     private static final String output = resources + "/adapterOutput"; // for final output
     private static final String renamedDir = resources + "/renamedOriginals"; // for first setup patch adapter output
     private static final String normalCp = prefix + "/target/classes/";
-    private static final String redefDirBase = prefix + "/src/main/java/testexamplespatch/"; // for patch classes
+    private static final String redefDirBase = prefix + "/resources/testexamplespatch/"; // for patch classes
     private static final String redefDirSuffix = "/patch";
     private static String redefDir;
 

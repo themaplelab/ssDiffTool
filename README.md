@@ -40,10 +40,11 @@ java -cp $cp differ.SemanticDiffer -cp cpplaceholder -w -renameDestination tempD
     * mainClass is a (currently non) optional argument and can be used to set the "main class" that is used for the second invocation of Soot in the patch adapter. If the mainClass argument is omitted, then the first class in the originalclasses file will be used, however mainClass is currently used to set the package names when loading classes in the patch adapter specific run(s) of Soot. In the future a smarter approach would be to retain package names from x.originalclasses.out, or to have a loader discover classes in the patch directory, or to load from jars. 
     * fullDir is an optional argument that specifies whether you would like Soot to use the redefcp option path as the directory to consider all classes from. If set to true, in Soot's callgraph (CG) generation, all classes in redefcp are considered application classes and each of their methods are modelled as entry points to the application. If set to false, only (all) methods in the mainClass class will be used as entry points for the CG, which may be unrealistic, depending on the patch structure.
     * x.originalclasses.out is the file that contains the names of the classes that are relevant to the patch, and should be analysed by the patch adapter, both for diffing purposes and for fixing purposes
-    * Example is any class, as a placeholder to get Soot up and running in a way that it is familiar with, however Example is included in this project, so for simplicity sake, Example can be used
+    * Example is any class, as a placeholder to get Soot up and running in a way that it is familiar with, however Example is included in this project, so for simplicity sake, Example can be used. Currently compiled into `target/classes/`, so anything that runs needs to keep that in mind, cp-wise. 
 
 ## Testing:
-   * tests can be run with: `mvn test`
+   * to setup the patch classes required for testing, first run `./makePatchClasses.sh`
+   * then tests can be run with: `mvn test`
    * testing requires additional heap, currently set in `pom.xml`, minimum required is 1gb
    * to run only one test: `mvn -Dtest=ValidationTest#BTestRunFieldAddition test`
    * to expand the testset:
@@ -53,5 +54,6 @@ java -cp $cp differ.SemanticDiffer -cp cpplaceholder -w -renameDestination tempD
      4) rename the package for the source in `src/main/java/testexamplespatch/<specific_testset_package_name>/patch/testexamples/<specific_testset_package_name>` to `patch.testexamples.<specific_testset_package_name>` so that when this recompiles when rebuilding the project, it does not conflict with original version of same class. Additionally they are each in a separate test dir in case the process_dir option of Soot is used during testing (set by useFullDir).
      5) now create the corresponding **original version** of that class in `src/main/java/testexamples/<specific_testset_package_name>`
      6) add corresponding tests for this added setup (see below for important detail)
+     7) add to the `makePatchClasses.sh` script to assure that setup can occur correctly
    * tests are setup to run in alphabetical order, a surefire way to ensure that they are run sequentially. If they are run in parallel, Soot will share many values, as it uses several singletons to model the application and this could cause issues if it is done unintentionally
    * tests additionally must use the `TestSetup.testSetupRefresh` method to refresh all Soot settings, and pause to allow for that to commence, otherwise there will likely be overlapping data in Soot's model of the application, which can cause issues.
