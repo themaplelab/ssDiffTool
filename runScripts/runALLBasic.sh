@@ -41,6 +41,8 @@ echo "MOVING: "
 find /root/CryptoAnalysis/adapterOutput -name "*.class"
 echo "INTO: "
 echo "/root/basicBmkResults/$i/adapterOutputs"
-find /root/CryptoAnalysis/adapterOutput -name "*.class" | xargs -I '{}' mv {} /root/basicBmkResults/$i/adapterOutputs
+#designed to auto move the outputs to another folder for record keeping
+#BUT this can sometimes run before the tests... which causes failures obviously as the class is needed in a certain cp for the tests...
+#find /root/CryptoAnalysis/adapterOutput -name "*.class" | xargs -I '{}' mv {} /root/basicBmkResults/$i/adapterOutputs
 
 done
